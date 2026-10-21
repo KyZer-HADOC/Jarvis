@@ -149,7 +149,7 @@ begin
     RuntimeBox.Width := ScaleX(425);
     RuntimeBox.Height := ScaleY(24);
     RuntimeBox.Caption := 'Python runtime, installed packages and downloaded models';
-    RuntimeBox.Checked := True;
+    RuntimeBox.Checked := False;
 
     PluginsBox := TNewCheckBox.Create(Form);
     PluginsBox.Parent := Form;
@@ -158,7 +158,7 @@ begin
     PluginsBox.Width := ScaleX(425);
     PluginsBox.Height := ScaleY(24);
     PluginsBox.Caption := 'Plugins and extra/community plugin files';
-    PluginsBox.Checked := True;
+    PluginsBox.Checked := False;
 
     MemoryBox := TNewCheckBox.Create(Form);
     MemoryBox.Parent := Form;
