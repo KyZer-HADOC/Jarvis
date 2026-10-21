@@ -74,8 +74,11 @@ jobs:
           from pathlib import Path
           os.environ["JARVIS_NO_BACKGROUND"] = "1"
           from core.plugin_loader import discover_plugins
+          from core.action_loader import discover_actions
           root = Path("plugins")
           registry = discover_plugins(root, set(), logger=lambda s: print(s), notify=lambda s: None)
+          action_registry = discover_actions(Path("actions"), set(), logger=lambda s: print(s))
+          assert action_registry.has("open_creator_website"), "Creator website action failed discovery."
           from plugins import _translate
           assert _translate.normalize("Sinhala") == ("si", "Sinhala"), _translate.normalize("Sinhala")
           assert _translate.normalize("ta") == ("ta", "Tamil"), _translate.normalize("ta")
