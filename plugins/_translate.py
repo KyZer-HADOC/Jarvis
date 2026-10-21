@@ -24,7 +24,7 @@ LANGS = {
     "id": "Indonesian", "ms": "Malay", "th": "Thai", "vi": "Vietnamese", "tr": "Turkish", "ur": "Urdu",
     "bn": "Bengali", "bengali": "Bengali", "ne": "Nepali", "nepali": "Nepali",
 }
-_CODES = {v: k for k, v in reversed(list(LANGS.items())) if len(k) == 2}
+_CODES = {name: code for code, name in LANGS.items() if len(code) == 2}
 _STYLE = {
     "Sinhala": "Use clear, natural Sinhala as people speak it today (not stiff literary Sinhala). ",
     "Tamil": "Use clear, natural spoken Tamil. ",
