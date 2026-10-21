@@ -90,6 +90,7 @@ PyPDF2                       # file_processor — PDF fallback reader
 python-docx                  # file_processor — .docx reading
 pynvml                       # system_monitor + the HUD's GPU meter (NVIDIA)
 imageio-ffmpeg>=0.5,<1       # video_toolkit plugin - bundled ffmpeg, so nothing else to install
+sympy>=1.12,<2                # accurate_solver plugin - exact math worker
 
 # ── Optional: heavy extras, install only if you want the feature ──────────────
 # Left out on purpose — together they are several hundred megabytes, which is a
