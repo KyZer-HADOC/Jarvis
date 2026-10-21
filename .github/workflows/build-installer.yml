@@ -63,6 +63,33 @@ jobs:
           Remove-Item .math-smoke.py -Force -ErrorAction SilentlyContinue
           if ($status -ne 0) { throw "Exact maths smoke test failed." }
 
+      - name: Smoke-test plugin discovery
+        shell: powershell
+        run: |
+          python -m pip install --disable-pip-version-check requests numpy pillow mss pyperclip
+          if ($LASTEXITCODE -ne 0) { throw "Could not install the lightweight dependencies for plugin checks." }
+          $env:JARVIS_NO_BACKGROUND = "1"
+          @'
+          import os
+          from pathlib import Path
+          os.environ["JARVIS_NO_BACKGROUND"] = "1"
+          from core.plugin_loader import discover_plugins
+          root = Path("plugins")
+          registry = discover_plugins(root, set(), logger=lambda s: print(s), notify=lambda s: None)
+          items = registry.list_for_ui()
+          invalid = [p for p in items if not p.get("valid")]
+          print(f"Discovered {len(items)} plugin files.")
+          for p in items:
+              print(f"{'OK' if p.get('valid') else 'BROKEN'}: {p.get('name')} ({p.get('file')})"
+                    + (f" — {p.get('error')}" if p.get('error') else ""))
+          if invalid:
+              raise SystemExit(f"{len(invalid)} plugin(s) failed discovery.")
+          '@ | Set-Content -Path .plugin-smoke.py -Encoding utf8
+          python .plugin-smoke.py
+          $status = $LASTEXITCODE
+          Remove-Item .plugin-smoke.py -Force -ErrorAction SilentlyContinue
+          if ($status -ne 0) { throw "Plugin discovery smoke test failed." }
+
       - name: Verify installer inputs
         shell: powershell
         run: |
