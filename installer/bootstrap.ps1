@@ -163,7 +163,8 @@ try {
         foreach ($line in Get-Content -LiteralPath $Req) {
             # Strip inline comments before passing a requirement as a single CLI argument.
             # This matters for entries such as "send2trash  # optional-plugin reason".
-            $spec = ($line -replace '\s+#.*
+            $spec = ($line -split '\s+#', 2)[0].Trim()
+            if (-not $spec -or $spec.StartsWith('#') -or $spec.StartsWith('-')) { continue }
             Say ("Installing package: " + $spec)
             $one = 1
             for ($attempt = 1; $attempt -le 2; $attempt++) {
