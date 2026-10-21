@@ -102,6 +102,7 @@ jobs:
             "main.py",
             "requirements.txt",
             "LICENSE",
+            "jarvis.ico",
             "config\jarvis.ico",
             "installer\Jarvis.iss",
             "installer\bootstrap.ps1"
