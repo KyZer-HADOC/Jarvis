@@ -16,7 +16,8 @@
 #>
 param(
     [Parameter(Mandatory = $true)][string]$AppDir,
-    [switch]$Firefox,        # also fetch Firefox for Playwright (extra ~80 MB)
+    [switch]$Browsers,       # fetch Chromium for Playwright (about 200 MB)
+    [switch]$Firefox,        # fetch Firefox for Playwright (about 80 MB)
     [switch]$SkipBrowsers    # used by CI
 )
 
@@ -144,15 +145,34 @@ try {
     }
 
     # ---- 3. requirements ----
-    Say "Installing requirements. This needs internet and takes a few minutes the first time..."
+    Say "Installing requirements. This needs internet and may take a few minutes the first time..."
     $code = 1
     for ($i = 1; $i -le 3; $i++) {
-        $code = Run $VenvPy @('-m', 'pip', 'install', '--disable-pip-version-check', '-r', $Req)
+        $code = Run $VenvPy @('-m', 'pip', 'install', '--disable-pip-version-check', '--prefer-binary', '-r', $Req)
         if ($code -eq 0) { break }
         Say "pip did not finish (attempt $i of 3). Retrying in 5 seconds..."
         Start-Sleep -Seconds 5
     }
-    if ($code -ne 0) { throw "Installing requirements failed (pip exit code $code). See install.log." }
+
+    # A single optional plugin dependency can fail to resolve on a particular Python
+    # version or mirror. Recover per requirement so it doesn't block installing the
+    # core assistant. Truly required imports are checked below and still stop setup.
+    $failedRequirements = @()
+    if ($code -ne 0) {
+        Say "The combined dependency install failed. Trying individual packages so one optional package cannot block the whole setup..."
+        foreach ($line in Get-Content -LiteralPath $Req) {
+            $spec = $line.Trim()
+            if (-not $spec -or $spec.StartsWith('#') -or $spec.StartsWith('-')) { continue }
+            Say ("Installing package: " + $spec)
+            $one = 1
+            for ($attempt = 1; $attempt -le 2; $attempt++) {
+                $one = Run $VenvPy @('-m', 'pip', 'install', '--disable-pip-version-check', '--prefer-binary', $spec)
+                if ($one -eq 0) { break }
+                Start-Sleep -Seconds 2
+            }
+            if ($one -ne 0) { $failedRequirements += $spec; Say ("Skipped package after retry: " + $spec) }
+        }
+    }
 
     # pywin32 sometimes needs its post-install step (same check as setup.py)
     $c = Run $VenvPy @('-c', 'import win32com.client')
@@ -161,18 +181,28 @@ try {
         if (Test-Path -LiteralPath $post) { Say "Registering pywin32..."; [void](Run $VenvPy @($post, '-install')) }
     }
 
-    # ---- 4. Playwright browsers (optional, not fatal) ----
-    if (-not $SkipBrowsers) {
-        $browsers = @('chromium'); if ($Firefox) { $browsers += 'firefox' }
-        Say ("Downloading browser(s) for web automation: " + ($browsers -join ', ') + " ...")
+    # ---- 4. Playwright browsers (optional; skipped by default to save data) ----
+    $browsers = @()
+    if ($Browsers) { $browsers += 'chromium' }
+    if ($Firefox) { $browsers += 'firefox' }
+    if (-not $SkipBrowsers -and $browsers.Count -gt 0) {
+        Say ("Downloading optional browser(s) for web automation: " + ($browsers -join ', ') + " ...")
         $bc = Run $VenvPy (@('-m', 'playwright', 'install') + $browsers)
-        if ($bc -ne 0) { Say "Browsers were not installed (exit $bc). Everything except browser automation still works. Run 'Repair JARVIS' later to retry." }
+        if ($bc -ne 0) {
+            Say "Browsers were not installed (exit $bc). The rest of JARVIS is ready; run Repair JARVIS with -Browsers to retry."
+        }
+    } else {
+        Say "Skipping optional Playwright browser download to save data. Website automation needs Chromium; it can be installed later."
     }
 
     # ---- 5. sanity check ----
-    $chk = Run $VenvPy @('-c', 'import PyQt6.QtWidgets, numpy, requests; from google import genai; print("imports ok")')
-    if ($chk -ne 0) { throw "Installed, but the core packages do not import. See install.log." }
+    $chk = Run $VenvPy @('-c', 'import PyQt6.QtWidgets, numpy, sounddevice, requests, psutil; import pyautogui, pyperclip; from google import genai; print("core imports ok")')
+    if ($chk -ne 0) { throw "Installed, but required core packages do not import. See install.log." }
 
+    if ($failedRequirements.Count -gt 0) {
+        Say ("WARNING: " + $failedRequirements.Count + " optional/package requirement(s) failed: " + ($failedRequirements -join '; '))
+        Say "JARVIS core installed, but plugins depending on those packages may be unavailable. See install.log."
+    }
     Say "All done."
     try { Stop-Transcript | Out-Null } catch {}
     exit 0
