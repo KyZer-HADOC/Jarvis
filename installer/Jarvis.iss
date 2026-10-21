@@ -111,10 +111,8 @@ begin
   if UninstallSilent then
     Exit;
 
-  Form := CreateCustomForm();
+  Form := CreateCustomForm(ScaleX(465), ScaleY(325), False, False);
   try
-    Form.ClientWidth := ScaleX(465);
-    Form.ClientHeight := ScaleY(325);
     Form.Caption := 'JARVIS - Uninstall options';
     Form.Position := poScreenCenter;
 
