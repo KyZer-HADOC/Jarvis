@@ -28,7 +28,6 @@ AppPublisherURL=https://github.com/KyZer-HADOC/Jarvis
 AppSupportURL=https://github.com/KyZer-HADOC/Jarvis/issues
 UninstallDisplayName=JARVIS
 UninstallDisplayVersion={#AppVersion}
-UninstallPublisher=KyZer_HADOC
 DefaultDirName={localappdata}\Programs\Jarvis
 DefaultGroupName=JARVIS
 DisableProgramGroupPage=yes
