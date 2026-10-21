@@ -46,7 +46,8 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Shortcuts:"
-Name: "firefox"; Description: "Also download Firefox for browser automation (extra ~80 MB, Chromium is always installed)"; GroupDescription: "Optional downloads:"; Flags: unchecked
+Name: "browsers"; Description: "Download Chromium for browser automation (extra ~200 MB)"; GroupDescription: "Optional downloads:"; Flags: unchecked
+Name: "firefox"; Description: "Also download Firefox for browser automation (extra ~80 MB)"; GroupDescription: "Optional downloads:"; Flags: unchecked
 
 [Files]
 ; Private data and build leftovers are excluded so that building on a developer PC can never leak keys.
@@ -55,7 +56,7 @@ Source: "..\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignorev
 [Icons]
 Name: "{group}\JARVIS"; Filename: "{app}\venv\Scripts\pythonw.exe"; Parameters: """{app}\main.py"""; WorkingDir: "{app}"; IconFilename: "{app}\config\jarvis.ico"
 Name: "{group}\JARVIS (console, for troubleshooting)"; Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\main.py"""; WorkingDir: "{app}"; IconFilename: "{app}\config\jarvis.ico"
-Name: "{group}\Repair JARVIS (reinstall requirements)"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\installer\bootstrap.ps1"" -AppDir ""{app}"""; WorkingDir: "{app}"; IconFilename: "{app}\config\jarvis.ico"
+Name: "{group}\Repair JARVIS (reinstall requirements; browser download is optional)"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\installer\bootstrap.ps1"" -AppDir ""{app}"""; WorkingDir: "{app}"; IconFilename: "{app}\config\jarvis.ico"
 Name: "{group}\Uninstall JARVIS"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\JARVIS"; Filename: "{app}\venv\Scripts\pythonw.exe"; Parameters: """{app}\main.py"""; WorkingDir: "{app}"; IconFilename: "{app}\config\jarvis.ico"; Tasks: desktopicon
 
@@ -96,6 +97,8 @@ begin
       'Installing requirements from the internet. A console window shows the progress; the first time takes a few minutes...';
     Params := '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{app}\installer\bootstrap.ps1') +
               '" -AppDir "' + ExpandConstant('{app}') + '"';
+    if WizardIsTaskSelected('browsers') then
+      Params := Params + ' -Browsers';
     if WizardIsTaskSelected('firefox') then
       Params := Params + ' -Firefox';
     if WizardSilent then
