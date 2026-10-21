@@ -18,6 +18,17 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Set up Python for source validation
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Validate Python syntax
+        shell: powershell
+        run: |
+          python -m compileall -q main.py ui.py doctor.py setup.py actions core dashboard memory plugins
+          if ($LASTEXITCODE -ne 0) { throw "Python syntax validation failed." }
+
       - name: Verify installer inputs
         shell: powershell
         run: |
