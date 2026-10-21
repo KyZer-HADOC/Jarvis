@@ -28,9 +28,15 @@ BASE_URL = "https://api.groq.com/openai/v1"
 
 # Defaults are only defaults: every one can be overridden in Plugin Settings, so
 # a model that Groq retires never needs a code change.
+# Groq retired llama-3.3-70b-versatile for developer-tier users on 2026-08-16.
+# GPT-OSS 20B is a supported current replacement and is faster/cheaper than 120B.
 DEFAULTS = {
-    "chat_model": "llama-3.3-70b-versatile",
+    "chat_model": "openai/gpt-oss-20b",
     "stt_model": "whisper-large-v3-turbo",
+}
+_RETIRED_CHAT_MODELS = {
+    "llama-3.3-70b-versatile": DEFAULTS["chat_model"],
+    "llama-3.1-8b-instant": DEFAULTS["chat_model"],
 }
 
 # Groq's free tier meters tokens per minute, so very long inputs are trimmed
@@ -52,6 +58,11 @@ def settings() -> dict:
             v = v.strip()
         if v not in ("", None):
             cfg[k] = v
+    # Existing installs may have the retired Llama model saved in api_keys.json.
+    # Migrate it in memory so Groq works without making the user find this setting.
+    chat_model = str(cfg.get("chat_model") or "").strip()
+    if chat_model in _RETIRED_CHAT_MODELS:
+        cfg["chat_model"] = _RETIRED_CHAT_MODELS[chat_model]
     return cfg
 
 
@@ -92,6 +103,9 @@ def _explain(resp: requests.Response, who: str = "Groq") -> str:
         return f"{who} says the account is out of credits."
     if code == 403:
         return f"{who} refused the request (403). The key may not have access to that model."
+    if any(term in detail.lower() for term in ("model_decommissioned", "model is decommissioned", "model has been decommissioned", "deprecated model", "model was deprecated")):
+        return (f"{who}'s selected model has been retired. In Plugin Settings, change the chat model "
+                f"to '{DEFAULTS['chat_model']}'.")
     if code == 404:
         return f"{who} doesn't know that model. Change it in Plugin Settings. {detail}".strip()
     if code == 413:
@@ -142,7 +156,7 @@ def _chat_groq(messages: list[dict], *, model: str | None, temperature: float,
         "model": model or settings()["chat_model"],
         "messages": messages,
         "temperature": temperature,
-        "max_tokens": max_tokens,
+        "max_completion_tokens": max_tokens,
     }
     resp = _request("POST", "/chat/completions", key=key, json=body, timeout=timeout)
     try:
@@ -249,16 +263,32 @@ def list_models(values: dict | None = None) -> list[str]:
 
 
 def test_connection(values: dict) -> tuple[bool, str]:
-    """Settings-panel TEST button. Never raises."""
+    """Settings-panel TEST button. Makes a small real completion, never raises."""
     try:
-        models = list_models(values)
+        key = api_key(values)
+        chosen = str(values.get("chat_model") or DEFAULTS["chat_model"]).strip()
+        migrated = chosen in _RETIRED_CHAT_MODELS
+        if migrated:
+            chosen = _RETIRED_CHAT_MODELS[chosen]
+        resp = _request(
+            "POST", "/chat/completions", key=key, retries=0, timeout=25,
+            json={
+                "model": chosen,
+                "messages": [{"role": "user", "content": "Reply with OK."}],
+                "max_completion_tokens": 8,
+                "temperature": 0,
+            },
+        )
+        body = resp.json()
+        answer = str(body.get("choices", [{}])[0].get("message", {}).get("content") or "").strip()
+        if not answer:
+            return False, f"Groq accepted the request but returned no answer for '{chosen}'."
+        note = " The retired model was automatically replaced with " + chosen + "." if migrated else ""
+        return True, f"Connected. '{chosen}' answered successfully.{note}"
     except GroqError as e:
         return False, str(e)
     except Exception as e:
         return False, f"Test failed: {e}"
-    chosen = (values.get("chat_model") or DEFAULTS["chat_model"]).strip()
-    note = "" if chosen in models else f"  Note: '{chosen}' is not in your model list."
-    return True, f"Connected. {len(models)} models available.{note}"
 
 
 # One schema shared by every groq_* plugin. The settings UI dedupes sections by
