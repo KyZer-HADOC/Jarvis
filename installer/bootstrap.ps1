@@ -199,6 +199,12 @@ try {
     $chk = Run $VenvPy @('-c', 'import PyQt6.QtWidgets, numpy, sounddevice, requests, psutil; import pyautogui, pyperclip; from google import genai; print("core imports ok")')
     if ($chk -ne 0) { throw "Installed, but required core packages do not import. See install.log." }
 
+    # Import the real application before reporting success. This catches a missing
+    # top-level dependency that a small list of core imports would otherwise miss.
+    Say "Checking that JARVIS itself can start..."
+    $appCheck = Run $VenvPy @('-c', 'import main; print("JARVIS startup imports ok")')
+    if ($appCheck -ne 0) { throw "A package is missing or incompatible with JARVIS startup. See install.log, then run Repair JARVIS." }
+
     if ($failedRequirements.Count -gt 0) {
         Say ("WARNING: " + $failedRequirements.Count + " optional/package requirement(s) failed: " + ($failedRequirements -join '; '))
         Say "JARVIS core installed, but plugins depending on those packages may be unavailable. See install.log."
