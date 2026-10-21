@@ -114,6 +114,22 @@ jobs:
             if (-not (Test-Path $path)) { throw "Required installer input is missing: $path" }
           }
 
+      - name: Validate PowerShell bootstrap syntax
+        shell: powershell
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path "installer\bootstrap.ps1"),
+            [ref]$tokens,
+            [ref]$errors
+          ) | Out-Null
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Host $_.ToString() }
+            throw "PowerShell bootstrap syntax validation failed."
+          }
+          Write-Host "PowerShell bootstrap syntax passed."
+
       - name: Install Inno Setup
         shell: powershell
         run: choco install innosetup -y --no-progress

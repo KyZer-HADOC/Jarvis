@@ -53,7 +53,8 @@ Name: "firefox"; Description: "Also download Firefox for browser automation (ext
 
 [Files]
 ; Private data and build leftovers are excluded so that building on a developer PC can never leak keys.
-Source: "..\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion; Excludes: ".git,.github,__pycache__,*.pyc,*.log,*.tmp,venv,python,installer\Output,publish_to_github.bat,.env,.env.*,token*.json,client_secret*.json,*credentials*.json,config\api_keys.json,config\certs,config\certs\*,config\whatsapp_web,config\whatsapp_web\*,memory\*.json,memory\*.db"
+Source: "..\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion; Excludes: ".git,.github,__pycache__,*.pyc,*.log,*.tmp,venv,python,plugins\*,installer\Output,publish_to_github.bat,.env,.env.*,token*.json,client_secret*.json,*credentials*.json,config\api_keys.json,config\certs,config\certs\*,config\whatsapp_web,config\whatsapp_web\*,memory\*.json,memory\*.db"
+Source: "..\plugins\*"; DestDir: "{app}\plugins"; Flags: recursesubdirs createallsubdirs ignoreversion uninsneveruninstall; Excludes: "__pycache__,*.pyc,*.log,*.tmp"
 
 [Icons]
 Name: "{group}\JARVIS"; Filename: "{app}\venv\Scripts\pythonw.exe"; Parameters: """{app}\main.py"""; WorkingDir: "{app}"; IconFilename: "{app}\jarvis.ico"
@@ -66,8 +67,6 @@ Filename: "{app}\venv\Scripts\pythonw.exe"; Parameters: """{app}\main.py"""; Wor
 
 [UninstallDelete]
 ; Created after install, so Inno does not know about them. The user's keys and memory are left alone.
-Type: filesandordirs; Name: "{app}\venv"
-Type: filesandordirs; Name: "{app}\python"
 Type: filesandordirs; Name: "{app}\install.log"
 Type: filesandordirs; Name: "{app}\__pycache__"
 Type: filesandordirs; Name: "{app}\core\__pycache__"
@@ -80,11 +79,131 @@ Type: filesandordirs; Name: "{app}\dashboard\__pycache__"
 [Code]
 var
   BootstrapOK: Boolean;
-  RemovePrivateData: Boolean;
+  RemoveApiData: Boolean;
+  RemoveRuntimeAndModels: Boolean;
+  RemoveCommunityPlugins: Boolean;
+  RemovePersonalMemory: Boolean;
 
 function BootstrapSucceeded: Boolean;
 begin
   Result := BootstrapOK;
+end;
+
+function InitializeUninstall(): Boolean;
+var
+  Form: TSetupForm;
+  TitleText: TNewStaticText;
+  HelpText: TNewStaticText;
+  ApiBox: TNewCheckBox;
+  RuntimeBox: TNewCheckBox;
+  PluginsBox: TNewCheckBox;
+  MemoryBox: TNewCheckBox;
+  OKButton: TNewButton;
+  CancelButton: TNewButton;
+begin
+  Result := True;
+  RemoveApiData := False;
+  RemoveRuntimeAndModels := True;
+  RemoveCommunityPlugins := True;
+  RemovePersonalMemory := False;
+
+  { Silent uninstalls remove program files/runtime, but preserve personal data. }
+  if UninstallSilent then
+    Exit;
+
+  Form := CreateCustomForm();
+  try
+    Form.ClientWidth := ScaleX(465);
+    Form.ClientHeight := ScaleY(325);
+    Form.Caption := 'JARVIS - Uninstall options';
+    Form.Position := poScreenCenter;
+
+    TitleText := TNewStaticText.Create(Form);
+    TitleText.Parent := Form;
+    TitleText.Left := ScaleX(16);
+    TitleText.Top := ScaleY(12);
+    TitleText.Width := ScaleX(430);
+    TitleText.Height := ScaleY(24);
+    TitleText.Caption := 'Choose which JARVIS data to delete';
+    TitleText.Font.Style := [fsBold];
+
+    HelpText := TNewStaticText.Create(Form);
+    HelpText.Parent := Form;
+    HelpText.Left := ScaleX(16);
+    HelpText.Top := ScaleY(40);
+    HelpText.Width := ScaleX(430);
+    HelpText.Height := ScaleY(34);
+    HelpText.Caption := 'Checked items will be deleted. Unchecked personal data is kept for a future reinstall.';
+
+    ApiBox := TNewCheckBox.Create(Form);
+    ApiBox.Parent := Form;
+    ApiBox.Left := ScaleX(20);
+    ApiBox.Top := ScaleY(82);
+    ApiBox.Width := ScaleX(425);
+    ApiBox.Height := ScaleY(24);
+    ApiBox.Caption := 'API keys, plugin settings and connection credentials';
+    ApiBox.Checked := False;
+
+    RuntimeBox := TNewCheckBox.Create(Form);
+    RuntimeBox.Parent := Form;
+    RuntimeBox.Left := ScaleX(20);
+    RuntimeBox.Top := ScaleY(120);
+    RuntimeBox.Width := ScaleX(425);
+    RuntimeBox.Height := ScaleY(24);
+    RuntimeBox.Caption := 'Python runtime, installed packages and downloaded models';
+    RuntimeBox.Checked := True;
+
+    PluginsBox := TNewCheckBox.Create(Form);
+    PluginsBox.Parent := Form;
+    PluginsBox.Left := ScaleX(20);
+    PluginsBox.Top := ScaleY(158);
+    PluginsBox.Width := ScaleX(425);
+    PluginsBox.Height := ScaleY(24);
+    PluginsBox.Caption := 'Plugins and extra/community plugin files';
+    PluginsBox.Checked := True;
+
+    MemoryBox := TNewCheckBox.Create(Form);
+    MemoryBox.Parent := Form;
+    MemoryBox.Left := ScaleX(20);
+    MemoryBox.Top := ScaleY(196);
+    MemoryBox.Width := ScaleX(425);
+    MemoryBox.Height := ScaleY(24);
+    MemoryBox.Caption := 'Personal memory, notes and saved local data';
+    MemoryBox.Checked := False;
+
+    OKButton := TNewButton.Create(Form);
+    OKButton.Parent := Form;
+    OKButton.Width := ScaleX(90);
+    OKButton.Height := ScaleY(25);
+    OKButton.Left := Form.ClientWidth - ScaleX(90 + 10 + 90 + 16);
+    OKButton.Top := Form.ClientHeight - ScaleY(42);
+    OKButton.Caption := 'Continue';
+    OKButton.ModalResult := mrOk;
+    OKButton.Default := True;
+
+    CancelButton := TNewButton.Create(Form);
+    CancelButton.Parent := Form;
+    CancelButton.Width := ScaleX(90);
+    CancelButton.Height := ScaleY(25);
+    CancelButton.Left := Form.ClientWidth - ScaleX(90 + 16);
+    CancelButton.Top := Form.ClientHeight - ScaleY(42);
+    CancelButton.Caption := 'Cancel';
+    CancelButton.ModalResult := mrCancel;
+    CancelButton.Cancel := True;
+
+    if Form.ShowModal = mrOk then
+    begin
+      RemoveApiData := ApiBox.Checked;
+      RemoveRuntimeAndModels := RuntimeBox.Checked;
+      RemoveCommunityPlugins := PluginsBox.Checked;
+      RemovePersonalMemory := MemoryBox.Checked;
+      Result := True;
+    end
+    else
+      Result := False;
+  finally
+    Form.Free;
+  end;
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
@@ -123,19 +242,28 @@ end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
-  if CurUninstallStep = usUninstall then
+  if CurUninstallStep = usPostUninstall then
   begin
-    RemovePrivateData := False;
-    if not UninstallSilent then
-      RemovePrivateData :=
-        MsgBox(
-          'Also delete your saved API keys, plugin settings, and personal memory? Choose No to keep them for a future reinstall.',
-          mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES;
-  end;
+    if RemoveApiData then
+    begin
+      DeleteFile(ExpandConstant('{app}\config\api_keys.json'));
+      DelTree(ExpandConstant('{app}\config\certs'), True, True, True);
+      DelTree(ExpandConstant('{app}\config\whatsapp_web'), True, True, True);
+    end;
 
-  if (CurUninstallStep = usPostUninstall) and RemovePrivateData then
-  begin
-    DelTree(ExpandConstant('{app}\config'), True, True, True);
-    DelTree(ExpandConstant('{app}\memory'), True, True, True);
+    if RemoveRuntimeAndModels then
+    begin
+      DelTree(ExpandConstant('{app}\venv'), True, True, True);
+      DelTree(ExpandConstant('{app}\python'), True, True, True);
+      DelTree(ExpandConstant('{app}\models'), True, True, True);
+      DelTree(ExpandConstant('{app}\model_cache'), True, True, True);
+      DelTree(ExpandConstant('{app}\model-cache'), True, True, True);
+    end;
+
+    if RemoveCommunityPlugins then
+      DelTree(ExpandConstant('{app}\plugins'), True, True, True);
+
+    if RemovePersonalMemory then
+      DelTree(ExpandConstant('{app}\memory'), True, True, True);
   end;
 end;

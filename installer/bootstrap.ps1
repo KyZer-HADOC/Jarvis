@@ -55,13 +55,22 @@ function Run([string]$Exe, [string[]]$Arguments) {
 
 # Returns "3.12" etc. when $Exe (+ launcher args) is a usable Python 3.11+, otherwise $null.
 function Test-Python([string]$Exe, [string[]]$Pre) {
+    # On Windows PowerShell 5.1, a missing py.exe runtime can turn native stderr
+    # into a terminating PowerShell error when ErrorActionPreference is Stop.
+    # Suppress that expected probe failure and continue checking other runtimes.
+    $previousPreference = $ErrorActionPreference
     try {
+        $ErrorActionPreference = 'Continue'
         $out = & $Exe @Pre -c "import sys; print('%d.%d' % sys.version_info[:2])" 2>$null
         if ($LASTEXITCODE -ne 0 -or -not $out) { return $null }
         $v = ("$out").Trim()
         $p = $v.Split('.')
         if ([int]$p[0] -eq 3 -and [int]$p[1] -ge 11) { return $v }
-    } catch {}
+    } catch {
+        return $null
+    } finally {
+        $ErrorActionPreference = $previousPreference
+    }
     return $null
 }
 
@@ -198,14 +207,16 @@ try {
     }
 
     # ---- 5. sanity check ----
-    $chk = Run $VenvPy @('-c', 'import PyQt6.QtWidgets, numpy, sounddevice, requests, psutil; import pyautogui, pyperclip; from google import genai; print("core imports ok")')
+    $chk = Run $VenvPy @('-c', 'import PyQt6.QtWidgets, numpy, sounddevice, requests, psutil, pyautogui, pyperclip; from google import genai')
     if ($chk -ne 0) { throw "Installed, but required core packages do not import. See install.log." }
+    Say "Core package imports passed."
 
     # Import the real application before reporting success. This catches a missing
     # top-level dependency that a small list of core imports would otherwise miss.
     Say "Checking that JARVIS itself can start..."
-    $appCheck = Run $VenvPy @('-c', 'import main; print("JARVIS startup imports ok")')
+    $appCheck = Run $VenvPy @('-c', 'import main')
     if ($appCheck -ne 0) { throw "A package is missing or incompatible with JARVIS startup. See install.log, then run Repair JARVIS." }
+    Say "JARVIS startup imports passed."
 
     if ($failedRequirements.Count -gt 0) {
         Say ("WARNING: " + $failedRequirements.Count + " optional/package requirement(s) failed: " + ($failedRequirements -join '; '))
