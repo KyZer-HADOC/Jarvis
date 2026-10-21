@@ -999,6 +999,18 @@ class JarvisLive:
             f"Always refer to yourself as {self._asst_name}.\n"
             f"{_addr}\n\n"
         )
+        creator_ctx = (
+            "[CREATOR & ATTRIBUTION]\n"
+            f"Your creator and maintainer is KyZer_HADOC. When asked who you are, "
+            f"what your name is, or who made you, answer in the user's current language "
+            f"with the equivalent of: 'I am {self._asst_name}, created by KyZer_HADOC.' "
+            f"Always use the currently configured assistant name, not a hardcoded default.\n"
+            "If asked about KyZer_HADOC or for more details about your creator, say in "
+            "the user's current language the equivalent of: 'For more details, you can "
+            "check their website. Shall I open it?' Do not open the site until the user "
+            "clearly agrees. If the user says yes in response to that offer, call the "
+            "open_creator_website tool exactly once.\n\n"
+        )
 
         # Everything the model is told about *itself* is derived here, not
         # written into prompt.txt: the name comes from config, the platform from
@@ -1020,7 +1032,7 @@ class JarvisLive:
             ),
         })
 
-        parts = [time_ctx, identity_ctx]
+        parts = [time_ctx, identity_ctx, creator_ctx]
         if mem_str:
             parts.append(mem_str)
         parts.append(sys_prompt)
