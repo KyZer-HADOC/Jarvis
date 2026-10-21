@@ -27,7 +27,7 @@ AppPublisher=KyZer_HADOC
 AppPublisherURL=https://github.com/KyZer-HADOC/Jarvis
 AppSupportURL=https://github.com/KyZer-HADOC/Jarvis/issues
 UninstallDisplayName=JARVIS
-UninstallDisplayVersion={#AppVersion}
+Uninstallable=yes
 DefaultDirName={localappdata}\Programs\Jarvis
 DefaultGroupName=JARVIS
 DisableProgramGroupPage=yes
@@ -126,10 +126,12 @@ procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
   if CurUninstallStep = usUninstall then
   begin
-    RemovePrivateData :=
-      MsgBox(
-        'Also delete your saved API keys, plugin settings, and personal memory? Choose No to keep them for a future reinstall.',
-        mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES;
+    RemovePrivateData := False;
+    if not UninstallSilent then
+      RemovePrivateData :=
+        MsgBox(
+          'Also delete your saved API keys, plugin settings, and personal memory? Choose No to keep them for a future reinstall.',
+          mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES;
   end;
 
   if (CurUninstallStep = usPostUninstall) and RemovePrivateData then
