@@ -90,7 +90,15 @@ def _batch(lines: list[str], name: str, source: str | None, budget: list[int]) -
     except TranslateError:
         raise
     except Exception as e:
-        if "key" in str(e).lower() and len(lines) == 1:
+        msg = str(e).lower()
+        # Don't recursively send the same failed request hundreds of times for an
+        # invalid API key, exhausted quota or offline computer. Those aren't bad
+        # translations and splitting the batch cannot fix them.
+        fatal_markers = ("api key", "invalid api", "unauthorized", "401", "403", "quota",
+                         "rate limit", "429", "no working", "can't reach", "cannot reach",
+                         "connection", "timed out", "too long to answer", "need an ai key",
+                         "don't have a groq")
+        if any(marker in msg for marker in fatal_markers):
             raise TranslateError(str(e))
     if len(lines) == 1:                        # cannot be split further: keep the original, say so
         return list(lines), 1
