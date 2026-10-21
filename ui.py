@@ -33,7 +33,7 @@ from PyQt6.QtCore import (
 )
 from PyQt6.QtGui import (
     QBrush, QColor, QConicalGradient, QDragEnterEvent, QDropEvent, QFont,
-    QFontDatabase, QKeySequence, QLinearGradient, QPainter, QPainterPath,
+    QFontDatabase, QIcon, QKeySequence, QLinearGradient, QPainter, QPainterPath,
     QPen, QPixmap, QRadialGradient, QShortcut,
 )
 # Video playback for the HUD. Part of PyQt6, so it costs no new dependency —
@@ -82,7 +82,7 @@ def _read_full_config() -> dict:
 
 # Single source of truth for the release name — the window title, the header
 # badge and the readme must never disagree again.
-APP_VERSION  = "MARK LV"
+APP_VERSION  = "JARVIS"
 APP_PROTOCOL = APP_VERSION.split()[-1]
 
 _DEFAULT_W, _DEFAULT_H = 980, 700
@@ -3732,8 +3732,11 @@ class MainWindow(QMainWindow):
         desktop = self._get_desktop_dir()
 
         # Arc-reactor icon (.ico — also exported as .png for Linux/macOS)
-        ico_path = Path(__file__).resolve().parent / "config" / "jarvis.ico"
+        ico_path = Path(__file__).resolve().parent / "jarvis.ico"
         if not ico_path.exists():
+            ico_path = Path(__file__).resolve().parent / "config" / "jarvis.ico"
+        if not ico_path.exists():
+            ico_path = Path(__file__).resolve().parent / "jarvis.ico"
             self._build_jarvis_icon(ico_path)
 
         try:
@@ -5601,6 +5604,13 @@ class JarvisUI:
         self._app = QApplication.instance() or QApplication(sys.argv)
         self._app.setStyle("Fusion")
         self._win = MainWindow(face_path)
+        icon_path = Path(__file__).resolve().parent / "jarvis.ico"
+        if not icon_path.exists():
+            icon_path = Path(__file__).resolve().parent / "config" / "jarvis.ico"
+        if icon_path.is_file():
+            app_icon = QIcon(str(icon_path))
+            self._app.setWindowIcon(app_icon)
+            self._win.setWindowIcon(app_icon)
         self.root = _RootShim(self._app)
         self._win.show()
 
