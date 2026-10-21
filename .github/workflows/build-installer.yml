@@ -76,6 +76,11 @@ jobs:
           from core.plugin_loader import discover_plugins
           root = Path("plugins")
           registry = discover_plugins(root, set(), logger=lambda s: print(s), notify=lambda s: None)
+          from plugins import _translate
+          assert _translate.normalize("Sinhala") == ("si", "Sinhala"), _translate.normalize("Sinhala")
+          assert _translate.normalize("ta") == ("ta", "Tamil"), _translate.normalize("ta")
+          assert _translate.normalize("English") == ("en", "English"), _translate.normalize("English")
+          print("Translation language-code checks passed.")
           items = registry.list_for_ui()
           invalid = [p for p in items if not p.get("valid")]
           print(f"Discovered {len(items)} plugin files.")
