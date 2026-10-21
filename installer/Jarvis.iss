@@ -59,7 +59,6 @@ Source: "..\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignorev
 Name: "{group}\JARVIS"; Filename: "{app}\venv\Scripts\pythonw.exe"; Parameters: """{app}\main.py"""; WorkingDir: "{app}"; IconFilename: "{app}\jarvis.ico"
 Name: "{group}\JARVIS (console, for troubleshooting)"; Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\main.py"""; WorkingDir: "{app}"; IconFilename: "{app}\jarvis.ico"
 Name: "{group}\Repair JARVIS (reinstall requirements; browser download is optional)"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\installer\bootstrap.ps1"" -AppDir ""{app}"""; WorkingDir: "{app}"; IconFilename: "{app}\jarvis.ico"
-Name: "{group}\Uninstall JARVIS"; Filename: "{uninstallexe}"; IconFilename: "{app}\jarvis.ico"
 Name: "{autodesktop}\JARVIS"; Filename: "{app}\venv\Scripts\pythonw.exe"; Parameters: """{app}\main.py"""; WorkingDir: "{app}"; IconFilename: "{app}\jarvis.ico"; Tasks: desktopicon
 
 [Run]
