@@ -29,6 +29,40 @@ jobs:
           python -m compileall -q main.py ui.py doctor.py setup.py actions core dashboard memory plugins
           if ($LASTEXITCODE -ne 0) { throw "Python syntax validation failed." }
 
+      - name: Smoke-test exact maths engine
+        shell: powershell
+        run: |
+          python -m pip install --disable-pip-version-check "sympy>=1.12,<2"
+          if ($LASTEXITCODE -ne 0) { throw "Could not install SymPy for the maths smoke test." }
+          @'
+          import json, subprocess, sys
+          worker = "plugins/_mathworker.py"
+          cases = [
+              ({"op":"eval","expr":"2^10 + sqrt(144)"}, lambda r: r.get("exact") == "1036"),
+              ({"op":"eval","expr":"sin(deg(30))"}, lambda r: r.get("exact") == "1/2"),
+              ({"op":"solve","expr":"x^2 - 5x + 6 = 0","vars":["x"]},
+               lambda r: "x = 2" in r.get("exact","") and "x = 3" in r.get("exact","") and r.get("verified") is True),
+              ({"op":"diff","expr":"x^3 * sin(x)","var":"x"},
+               lambda r: "x^3*cos(x)" in r.get("exact","").replace(" ","")),
+              ({"op":"integrate","expr":"x^2","var":"x","lower":"0","upper":"3"},
+               lambda r: r.get("exact") == "9"),
+              ({"op":"det","a":"Matrix([[1,2],[3,4]])"}, lambda r: r.get("exact") == "-2"),
+              ({"op":"eval","expr":"__import__('os').system('echo unsafe')"}, lambda r: not r.get("ok")),
+          ]
+          for op, check in cases:
+              p = subprocess.run([sys.executable, worker], input=json.dumps({"ops":[op]}),
+                                 text=True, capture_output=True, timeout=20)
+              if p.returncode != 0: raise SystemExit(f"Math worker crashed: {p.stderr[-500:]}")
+              try: r = json.loads(p.stdout)["results"][0]
+              except Exception: raise SystemExit(f"Math worker returned invalid JSON: {p.stdout[-500:]}")
+              if not check(r): raise SystemExit(f"Math smoke test failed for {op}: {r}")
+          print(f"Passed {len(cases)} exact-math and hostile-input smoke tests.")
+          '@ | Set-Content -Path .math-smoke.py -Encoding utf8
+          python .math-smoke.py
+          $status = $LASTEXITCODE
+          Remove-Item .math-smoke.py -Force -ErrorAction SilentlyContinue
+          if ($status -ne 0) { throw "Exact maths smoke test failed." }
+
       - name: Verify installer inputs
         shell: powershell
         run: |
