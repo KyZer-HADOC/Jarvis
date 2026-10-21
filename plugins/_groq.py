@@ -275,7 +275,10 @@ def test_connection(values: dict) -> tuple[bool, str]:
             json={
                 "model": chosen,
                 "messages": [{"role": "user", "content": "Reply with OK."}],
-                "max_completion_tokens": 8,
+                # GPT-OSS spends some completion budget on internal reasoning; 8 tokens
+                # can produce an empty visible answer even when the key/model are valid.
+                "max_completion_tokens": 64,
+                "reasoning_effort": "low",
                 "temperature": 0,
             },
         )
