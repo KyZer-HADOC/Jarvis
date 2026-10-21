@@ -148,7 +148,7 @@ try {
     Say "Installing requirements. This needs internet and may take a few minutes the first time..."
     $code = 1
     for ($i = 1; $i -le 3; $i++) {
-        $code = Run $VenvPy @('-m', 'pip', 'install', '--disable-pip-version-check', '--prefer-binary', '-r', $Req)
+        $code = Run $VenvPy @('-m', 'pip', 'install', '--disable-pip-version-check', '--prefer-binary', '--retries', '5', '--timeout', '45', '-r', $Req)
         if ($code -eq 0) { break }
         Say "pip did not finish (attempt $i of 3). Retrying in 5 seconds..."
         Start-Sleep -Seconds 5
@@ -161,7 +161,67 @@ try {
     if ($code -ne 0) {
         Say "The combined dependency install failed. Trying individual packages so one optional package cannot block the whole setup..."
         foreach ($line in Get-Content -LiteralPath $Req) {
-            $spec = $line.Trim()
+            # Strip inline comments before passing a requirement as a single CLI argument.
+            # This matters for entries such as "send2trash  # optional-plugin reason".
+            $spec = ($line -replace '\s+#.*
+            Say ("Installing package: " + $spec)
+            $one = 1
+            for ($attempt = 1; $attempt -le 2; $attempt++) {
+                $one = Run $VenvPy @('-m', 'pip', 'install', '--disable-pip-version-check', '--prefer-binary', '--retries', '5', '--timeout', '45', $spec)
+                if ($one -eq 0) { break }
+                Start-Sleep -Seconds 2
+            }
+            if ($one -ne 0) { $failedRequirements += $spec; Say ("Skipped package after retry: " + $spec) }
+        }
+    }
+
+    # pywin32 sometimes needs its post-install step (same check as setup.py)
+    $c = Run $VenvPy @('-c', 'import win32com.client')
+    if ($c -ne 0) {
+        $post = Join-Path $VenvDir 'Scripts\pywin32_postinstall.py'
+        if (Test-Path -LiteralPath $post) { Say "Registering pywin32..."; [void](Run $VenvPy @($post, '-install')) }
+    }
+
+    # ---- 4. Playwright browsers (optional; skipped by default to save data) ----
+    $browsers = @()
+    if ($Browsers) { $browsers += 'chromium' }
+    if ($Firefox) { $browsers += 'firefox' }
+    if (-not $SkipBrowsers -and $browsers.Count -gt 0) {
+        Say ("Downloading optional browser(s) for web automation: " + ($browsers -join ', ') + " ...")
+        $bc = Run $VenvPy (@('-m', 'playwright', 'install') + $browsers)
+        if ($bc -ne 0) {
+            Say "Browsers were not installed (exit $bc). The rest of JARVIS is ready; run Repair JARVIS with -Browsers to retry."
+        }
+    } else {
+        Say "Skipping optional Playwright browser download to save data. Website automation needs Chromium; it can be installed later."
+    }
+
+    # ---- 5. sanity check ----
+    $chk = Run $VenvPy @('-c', 'import PyQt6.QtWidgets, numpy, sounddevice, requests, psutil; import pyautogui, pyperclip; from google import genai; print("core imports ok")')
+    if ($chk -ne 0) { throw "Installed, but required core packages do not import. See install.log." }
+
+    # Import the real application before reporting success. This catches a missing
+    # top-level dependency that a small list of core imports would otherwise miss.
+    Say "Checking that JARVIS itself can start..."
+    $appCheck = Run $VenvPy @('-c', 'import main; print("JARVIS startup imports ok")')
+    if ($appCheck -ne 0) { throw "A package is missing or incompatible with JARVIS startup. See install.log, then run Repair JARVIS." }
+
+    if ($failedRequirements.Count -gt 0) {
+        Say ("WARNING: " + $failedRequirements.Count + " optional/package requirement(s) failed: " + ($failedRequirements -join '; '))
+        Say "JARVIS core installed, but plugins depending on those packages may be unavailable. See install.log."
+    }
+    Say "All done."
+    try { Stop-Transcript | Out-Null } catch {}
+    exit 0
+}
+catch {
+    Say ("FAILED: " + $_.Exception.Message)
+    Say "Details are in $Log"
+    try { Stop-Transcript | Out-Null } catch {}
+    Start-Sleep -Seconds 3
+    exit 1
+}
+, '').Trim()
             if (-not $spec -or $spec.StartsWith('#') -or $spec.StartsWith('-')) { continue }
             Say ("Installing package: " + $spec)
             $one = 1
