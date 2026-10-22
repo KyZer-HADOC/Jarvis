@@ -103,6 +103,8 @@ jobs:
           folder_followup = "e folder eka athule video files bara ganak thiye.ethanin mul episodes 5 he gen karanna"
           assert helper_ns["_is_episode_batch_request"](folder_followup)
           assert helper_ns["_is_subtitle_request"](folder_followup)
+          assert helper_ns["_extract_episode_count"](folder_followup) == 5
+          assert helper_ns["_extract_episode_count"]("ethanin mul episodes 3 he gen karanna") == 3
           assert helper_ns["_is_subtitle_request"]("generate sinhala sub")
           for harmless_followup in ("ela", "hmm", "hadawada", "nice ban"):
               assert not helper_ns["_is_subtitle_request"](harmless_followup), harmless_followup
@@ -113,7 +115,25 @@ jobs:
           # Regression test: a missing Boruto path must never resolve to a Naruto
           # file merely because that is the only movie in a common user folder.
           import tempfile
-          from plugins import _media
+          from plugins import _media, subtitle_translate as _st
+          # A previously saved first episode-chunk translation must be reused as a
+          # prefix when the growing source transcript contains more timestamped cues.
+          with tempfile.TemporaryDirectory() as tmp:
+              prefix_root = Path(tmp)
+              growing_source = prefix_root / "growing-source.srt"
+              existing_sidecar = prefix_root / "growing.srt"
+              growing_source.write_text(
+                  "1\\n00:00:00,000 --> 00:00:01,000\\nHello\\n\\n"
+                  "2\\n00:00:01,000 --> 00:00:02,000\\nWorld\\n",
+                  encoding="utf-8",
+              )
+              existing_sidecar.write_text(
+                  "1\\n00:00:00,000 --> 00:00:01,000\\nආයුබෝවන්\\n",
+                  encoding="utf-8",
+              )
+              parsed, positions, original = _st._parse(_st._read_text(growing_source))
+              assert _st._compatible_existing(existing_sidecar, parsed, original) == ["ආයුබෝවන්", "World"]
+          print("Growing-SRT translation checkpoint resume passed.")
           with tempfile.TemporaryDirectory() as tmp:
               test_root = Path(tmp)
               fake_home = test_root / "home"
