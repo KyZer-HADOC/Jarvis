@@ -353,7 +353,7 @@ def _extract_windows_path(text: str) -> str:
 def _extract_episode_count(text: str) -> int:
     """Return N for requests to handle the first N episodes; zero means single-file mode."""
     raw = str(text or "")
-    first = re.search(r"(?i)\b(?:mula|mulin|first|from\s+the\s+start|starting\s+from)\b", raw)
+    first = re.search(r"(?i)\b(?:mula|mulin|mul|first|from\s+the\s+start|starting\s+from)\b", raw)
     if not first:
         return 0
     tail = raw[first.end():first.end() + 60]
