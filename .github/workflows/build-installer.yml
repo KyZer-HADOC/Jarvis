@@ -125,12 +125,12 @@ jobs:
               growing_source = prefix_root / "growing-source.srt"
               existing_sidecar = prefix_root / "growing.srt"
               growing_source.write_text(
-                  "1\\n00:00:00,000 --> 00:00:01,000\\nHello\\n\\n"
-                  "2\\n00:00:01,000 --> 00:00:02,000\\nWorld\\n",
+                  "1\n00:00:00,000 --> 00:00:01,000\nHello\n\n"
+                  "2\n00:00:01,000 --> 00:00:02,000\nWorld\n",
                   encoding="utf-8",
               )
               existing_sidecar.write_text(
-                  "1\\n00:00:00,000 --> 00:00:01,000\\nආයුබෝවන්\\n",
+                  "1\n00:00:00,000 --> 00:00:01,000\nආයුබෝවන්\n",
                   encoding="utf-8",
               )
               parsed, positions, original = _st._parse(_st._read_text(growing_source))
