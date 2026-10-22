@@ -1273,6 +1273,9 @@ class JarvisLive:
                     "target_language": chosen_target or "Sinhala",
                     "burn": burn_requested,
                 }
+                episode_count = _extract_episode_count(user_text)
+                if episode_count > 1:
+                    args["episode_count"] = episode_count
 
         # Refuse stale subtitle tool calls before dispatching them. This is the
         # guard that prevents a previous Naruto/other movie from being reused when
