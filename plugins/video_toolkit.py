@@ -572,7 +572,7 @@ def run(parameters: dict, player=None, session_memory=None) -> str:
                 episode_count = 0
             raw_file = str(parameters.get("file") or "").strip().strip('"').strip("'")
             folder = Path(raw_file).expanduser()
-            if episode_count > 1 and folder.is_dir():
+            if episode_count > 0 and folder.is_dir():
                 return _subtitle_folder_batch(folder, episode_count, parameters, player)
         if action == "merge":
             return _merge(parameters, player, open_it)
