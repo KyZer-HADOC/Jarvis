@@ -1518,21 +1518,108 @@ class JarvisLive:
                         )
 
                     def _run_plugin():
-                        try:
-                            return self._plugin_registry.run(
-                                dispatch_name, args, player=self.ui, session_memory=None
-                            )
-                        finally:
-                            # This finally runs in the worker thread even if the awaiting
-                            # Live receive task was cancelled by a socket reconnect.
-                            if _is_subtitle_job:
-                                with self._active_task_lock:
-                                    if (self._active_task
-                                            and self._active_task.get("token") == _job_token):
-                                        self._active_task = None
+                        return self._plugin_registry.run(
+                            dispatch_name, args, player=self.ui, session_memory=None
+                        )
 
-                    r = await loop.run_in_executor(None, _run_plugin)
-                    result = r or "Done."
+                    if _is_subtitle_job:
+                        # A full episode can take minutes. Do not hold the Live receive loop
+                        # open until it finishes: that caused server timeouts/reconnects and
+                        # lost the final response. Run it in the background, acknowledge it
+                        # now, and post/speak the final result from the completion callback.
+                        _future = loop.run_in_executor(None, _run_plugin)
+
+                        def _subtitle_finished(done_future):
+                            try:
+                                _final_result = str(done_future.result() or "Done.")
+                            except BaseException as _exc:
+                                _final_result = f"Subtitle generation failed: {_exc}"
+
+                            _status = "finished"
+                            _batch_match = re.search(
+                                r"(?i)Subtitle batch finished:\s*(\d+)/(\d+) episode", _final_result
+                            )
+                            if _batch_match:
+                                _done_count, _total_count = map(int, _batch_match.groups())
+                                _status = "completed" if _done_count == _total_count else (
+                                    "partial" if _done_count else "failed"
+                                )
+                            elif re.search(
+                                r"(?i)^\s*(?:Done\b|Subtitle file saved:|Finished subtitles:)",
+                                _final_result,
+                            ):
+                                _status = "completed"
+                            elif re.search(
+                                r"(?i)(?:failed|did not finish|couldn't|could not|stopped at|I didn't)",
+                                _final_result,
+                            ):
+                                _status = "failed"
+
+                            with self._active_task_lock:
+                                if self._active_task and self._active_task.get("token") == _job_token:
+                                    self._active_task.update({
+                                        "status": _status,
+                                        "result": _final_result,
+                                        "finished_at": datetime.now().isoformat(),
+                                    })
+
+                            # Progress and each saved checkpoint already appear in this log.
+                            # Always print the final truth here too, even if the Live API
+                            # session reconnected while the worker was running.
+                            self.ui.write_log(f"{self._asst_name}: {_final_result}")
+                            try:
+                                self._session_log.append(f"{self._asst_name}: {_final_result}")
+                            except Exception:
+                                pass
+                            if self._dashboard:
+                                try:
+                                    asyncio.create_task(self._dashboard.broadcast({
+                                        "type": "log", "speaker": self._asst_name,
+                                        "text": _final_result,
+                                        "ts": datetime.now().isoformat(),
+                                    }))
+                                except Exception:
+                                    pass
+
+                            async def _announce_completion():
+                                # Let the short "started" reply finish before putting the
+                                # completion notice onto the voice conversation as a new turn.
+                                await asyncio.sleep(1.5)
+                                _notice = (
+                                    "[BACKGROUND_TASK_COMPLETE]\n"
+                                    f"Source: {_source}. Target language: {_target}. "
+                                    f"Status: {_status}. Final result: {_final_result}\n"
+                                    "Tell the user aloud now that the background subtitle task has finished. "
+                                    "Give the actual output path from the result, be accurate about failures, "
+                                    "and do not start another task or call any tools."
+                                )
+                                try:
+                                    _session = self.session
+                                    if _session is not None:
+                                        await _session.send_client_content(
+                                            turns={"role": "user", "parts": [{"text": _notice}]},
+                                            turn_complete=True,
+                                        )
+                                except Exception as _notify_exc:
+                                    self.ui.write_log(
+                                        f"SYS: Completion result is saved in the activity log; "
+                                        f"voice notification could not be queued ({_notify_exc})."
+                                    )
+
+                            try:
+                                asyncio.create_task(_announce_completion())
+                            except Exception:
+                                pass
+
+                        _future.add_done_callback(_subtitle_finished)
+                        result = (
+                            f"Subtitle generation has started in the background for {_label}. "
+                            f"Target language: {_target}. Progress and saved checkpoints will appear in the activity log; "
+                            "I will announce the final result when it finishes."
+                        )
+                    else:
+                        r = await loop.run_in_executor(None, _run_plugin)
+                        result = r or "Done."
                 else:
                     result = f"Unknown tool: {name}"
 
