@@ -40,7 +40,7 @@ PLUGIN = {
                 "type": "STRING",
                 "description": "info | trim | merge | extract_audio | vertical | speed | compress | gif | subtitles | add_music",
             },
-            "file": {"type": "STRING", "description": "Input video (name in Videos/Downloads/Desktop, or full path)."},
+            "file": {"type": "STRING", "description": "Required input video path. Pass the user's local Windows path exactly, including drive letter, spaces and square brackets. A path without .mkv/.mp4 extension or a folder containing the movie is acceptable; the resolver will choose the matching media file."},
             "files": {"type": "STRING", "description": "For merge: all files in order, separated by commas."},
             "start": {"type": "STRING", "description": "Start time: seconds, m:ss or h:mm:ss. For trim and gif."},
             "end": {"type": "STRING", "description": "End time, same format. For trim and gif."},
