@@ -193,7 +193,7 @@ def translate_srt_file(
                 )
                 # Show a small live preview in the activity/chat log as well as
                 # writing the checkpoint to disk. Keep it short so progress remains readable.
-                preview = [str(line).strip().replace("\\n", " ")[:150]
+                preview = [str(line).strip().replace("\n", " ")[:150]
                            for line in partial[max(0, done - 3):done] if str(line).strip()]
                 if preview:
                     player.write_log("JARVIS: Latest saved subtitle lines — " + " | ".join(preview))
