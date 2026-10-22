@@ -84,6 +84,23 @@ jobs:
           assert _translate.normalize("ta") == ("ta", "Tamil"), _translate.normalize("ta")
           assert _translate.normalize("English") == ("en", "English"), _translate.normalize("English")
           print("Translation language-code checks passed.")
+          # Regression test for the exact voice request that previously got blocked.
+          import ast, re
+          main_tree = ast.parse(Path("main.py").read_text(encoding="utf-8"))
+          helper_names = {"_extract_windows_path", "_extract_episode_count"}
+          helper_nodes = [node for node in main_tree.body
+                          if isinstance(node, ast.FunctionDef) and node.name in helper_names]
+          assert {node.name for node in helper_nodes} == helper_names, "Subtitle request helpers are missing."
+          helper_ns = {"re": re}
+          exec(compile(ast.Module(body=helper_nodes, type_ignores=[]), "main.py", "exec"), helper_ns)
+          spoken_request = r"E:\Anime\Boruto\Boruto TV Seiries\Boruto Clasic mula epi 5 he sinhala sub generate karanna"
+          extracted_path = helper_ns["_extract_windows_path"](spoken_request)
+          assert extracted_path == r"E:\Anime\Boruto\Boruto TV Seiries\Boruto Clasic", extracted_path
+          assert helper_ns["_extract_episode_count"](spoken_request) == 5
+          print("Boruto folder path + first-five-episodes request parsing passed.")
+          from plugins import video_toolkit
+          assert sorted(["Boruto 10.mp4", "Boruto 2.mp4"], key=video_toolkit._natural_key) == ["Boruto 2.mp4", "Boruto 10.mp4"]
+          print("Episode filename natural-order sorting passed.")
           # Regression test: a missing Boruto path must never resolve to a Naruto
           # file merely because that is the only movie in a common user folder.
           import tempfile
@@ -110,6 +127,17 @@ jobs:
                       pass
                   else:
                       raise AssertionError("Bare Boruto filename resolved to an unrelated video.")
+                  # A folder containing several videos must never silently pick its largest file.
+                  many = test_root / "Boruto Episodes"
+                  many.mkdir()
+                  (many / "Boruto 1.mp4").write_bytes(b"episode one")
+                  (many / "Boruto 2.mp4").write_bytes(b"episode two is bigger")
+                  try:
+                      _media.resolve_file(str(many), {".mp4"})
+                  except _media.MediaError:
+                      pass
+                  else:
+                      raise AssertionError("Ambiguous episode folder silently selected a video.")
                   wanted = source_dir / "Boruto - 291.mp4"
                   wanted.write_bytes(b"the requested video")
                   assert _media.resolve_file(str(wanted), {".mp4"}) == wanted.resolve()
