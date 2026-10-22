@@ -330,18 +330,44 @@ def _clean_transcript(text: str) -> str:
 
 
 def _extract_windows_path(text: str) -> str:
-    """Recover a Windows path the user supplied, even if the model drops its drive."""
+    """Recover an explicit Windows file/folder path without swallowing the spoken command."""
     match = re.search(r"(?i)([a-z]:\\[^\r\n]+)", text or "")
     if not match:
         return ""
     value = match.group(1).strip()
-    task = re.search(
-        r"(?i)\s+(?:generate|make|create|add|translate|burn|subtitle|subtitles|subtitiles|caption)\b",
-        value,
+    # People often speak the folder path followed by a romanized Sinhala command,
+    # e.g. "E:\\Anime\\Boruto\\Boruto Clasic mula epi 5 he sinhala sub generate karanna".
+    # Cut on recognizable command/language words, then keep the path itself untouched.
+    stops = (
+        r"generate|make|create|add|translate|burn|subtitle|subtitles|subtitiles|"
+        r"caption|captions|sinhala|tamil|english|hindi|japanese|\bsub\b|\bsrt\b|"
+        r"karanna|karapan|hadanna|hadandoo|mula|mulin|first|"
+        r"from\s+the\s+start|starting\s+from"
     )
+    task = re.search(rf"(?i)\s+(?:{stops})\b", value)
     if task:
         value = value[:task.start()].rstrip()
     return value.strip().strip('"').strip("'").rstrip(" ,;.")
+
+
+def _extract_episode_count(text: str) -> int:
+    """Return N for requests to handle the first N episodes; zero means single-file mode."""
+    raw = str(text or "")
+    first = re.search(r"(?i)\b(?:mula|mulin|first|from\s+the\s+start|starting\s+from)\b", raw)
+    if not first:
+        return 0
+    tail = raw[first.end():first.end() + 60]
+    m = re.search(
+        r"(?i)\b(?:episodes?|eps?|epi)\s*(\d+)\b|\b(\d+)\s*(?:episodes?|eps?|epi)\b",
+        tail,
+    )
+    if not m:
+        return 0
+    try:
+        count = int(m.group(1) or m.group(2))
+    except (TypeError, ValueError):
+        return 0
+    return min(50, max(1, count))
 
 
 def _extract_media_filename(text: str) -> str:
@@ -1236,6 +1262,9 @@ class JarvisLive:
                 args["file"] = current_media_ref
                 args["target_language"] = chosen_target or args.get("target_language") or args.get("language") or "Sinhala"
                 args["burn"] = burn_requested
+                episode_count = _extract_episode_count(user_text)
+                if episode_count > 1:
+                    args["episode_count"] = episode_count
             elif name == "subtitle_translate" and Path(current_media_ref).suffix.lower() != ".srt":
                 dispatch_name = "video_toolkit"
                 args = {
@@ -1693,6 +1722,11 @@ class JarvisLive:
                             txt = _clean_transcript(sc.input_transcription.text)
                             if txt:
                                 in_buf.append(txt)
+                                # Tool calls can arrive before turn_complete has finalized
+                                # the transcript. Keep the in-progress user utterance visible
+                                # to the path/intent guard so a valid current request is not
+                                # mistaken for a stale call from an earlier movie.
+                                self._last_user_text = " ".join(in_buf).strip()
                                 self._last_user_speech = time.monotonic()
 
                         if sc.turn_complete:
