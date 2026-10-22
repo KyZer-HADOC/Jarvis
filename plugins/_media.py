@@ -134,28 +134,87 @@ def probe(path: Path) -> dict:
 
 # ── files and folders ─────────────────────────────────────────────────────────
 def resolve_file(name: str, exts: set[str] | None = None) -> Path:
-    """Full path, or a bare file name found in the usual user folders."""
+    """Resolve a full path, extensionless movie path, movie folder, or a bare name.
+
+    People often dictate a movie path without typing the final .mkv/.mp4 extension,
+    or paste the folder that contains the movie. Handle both before searching common
+    folders; never discard a supplied drive/path and then claim it was not provided.
+    """
     raw = (name or "").strip().strip('"').strip("'")
     if not raw:
-        raise MediaError("Which file, sir?")
-    p = Path(raw).expanduser()
-    if p.is_file():
+        raise MediaError("Which file or movie folder should I use, sir?")
+    p = Path(os.path.expandvars(raw)).expanduser()
+    allowed = {e.lower() for e in exts} if exts else None
+
+    def valid_file(candidate: Path) -> bool:
+        return candidate.is_file() and (allowed is None or candidate.suffix.lower() in allowed)
+
+    def candidates_in(folder: Path) -> list[Path]:
+        try:
+            return [x for x in folder.iterdir() if valid_file(x)]
+        except OSError:
+            return []
+
+    def choose(files: list[Path], requested_stem: str = "") -> Path | None:
+        if not files:
+            return None
+        wanted = requested_stem.casefold()
+        # Exact names/stems first (including extensionless paths), then filename
+        # prefixes for scene/release suffixes, then largest file if a folder was given.
+        exact = [x for x in files if x.name.casefold() == wanted or x.stem.casefold() == wanted]
+        if exact:
+            return max(exact, key=lambda x: x.stat().st_size if x.exists() else 0)
+        prefix = [x for x in files if wanted and x.stem.casefold().startswith(wanted)]
+        if prefix:
+            return max(prefix, key=lambda x: x.stat().st_size if x.exists() else 0)
+        if len(files) == 1:
+            return files[0]
+        return max(files, key=lambda x: x.stat().st_size if x.exists() else 0)
+
+    if valid_file(p):
         return p
+
+    # A directory itself is a useful input: choose its main media file. If there
+    # are several files, prefer a name matching the folder, otherwise the largest.
+    if p.is_dir():
+        picked = choose(candidates_in(p), p.name)
+        if picked:
+            return picked
+        # A release folder sometimes contains a one-level nested "Movie" folder.
+        try:
+            nested = [x for x in p.iterdir() if x.is_dir()]
+            nested_files = [f for folder in nested for f in candidates_in(folder)]
+            picked = choose(nested_files, p.name)
+            if picked:
+                return picked
+        except OSError:
+            pass
+        raise MediaError(f"I found the folder '{p}', but couldn't find a supported media file inside it.")
+
+    # A path without an extension, e.g. D:\\Movies\\Thor (2011) [1080p], should
+    # match D:\\Movies\\Thor (2011) [1080p].mkv in that same directory.
+    if p.parent.is_dir():
+        picked = choose(candidates_in(p.parent), p.name)
+        if picked:
+            return picked
+
     wanted = p.name.lower()
     for d in _SEARCH_DIRS:
         folder = HOME / d
         if not folder.is_dir():
             continue
         try:
-            for f in folder.iterdir():
-                if not f.is_file():
-                    continue
-                if f.name.lower() == wanted or (f.stem.lower() == wanted
-                                                and (exts is None or f.suffix.lower() in exts)):
-                    return f
+            files = candidates_in(folder)
+            picked = choose(files, p.name)
+            if picked:
+                return picked
         except OSError:
             continue
-    raise MediaError(f"I couldn't find '{p.name}' in your usual folders. Give me the full path.")
+    raise MediaError(
+        f"I couldn't find a supported media file at '{p}'. I checked that exact path, "
+        "an extensionless filename match, and the usual user folders. Check the filename "
+        "and extension (.mkv, .mp4, .mov, etc.)."
+    )
 
 
 def out_dir(kind: str) -> Path:
