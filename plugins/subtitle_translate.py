@@ -173,4 +173,3 @@ def run(parameters: dict, player=None, session_memory=None) -> str:
         return f"Subtitle translation failed: {exc}. A checkpoint file may already be saved beside the source SRT."
     except Exception as exc:
         return f"I couldn't translate that SRT file: {exc}"
-}
