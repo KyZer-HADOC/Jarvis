@@ -87,7 +87,10 @@ jobs:
           # Regression test for the exact voice request that previously got blocked.
           import ast, re
           main_tree = ast.parse(Path("main.py").read_text(encoding="utf-8"))
-          helper_names = {"_extract_windows_path", "_extract_episode_count"}
+          helper_names = {
+              "_extract_windows_path", "_extract_episode_count",
+              "_is_episode_batch_request", "_is_subtitle_request"
+          }
           helper_nodes = [node for node in main_tree.body
                           if isinstance(node, ast.FunctionDef) and node.name in helper_names]
           assert {node.name for node in helper_nodes} == helper_names, "Subtitle request helpers are missing."
@@ -97,7 +100,13 @@ jobs:
           extracted_path = helper_ns["_extract_windows_path"](spoken_request)
           assert extracted_path == r"E:\Anime\Boruto\Boruto TV Seiries\Boruto Clasic", extracted_path
           assert helper_ns["_extract_episode_count"](spoken_request) == 5
-          print("Boruto folder path + first-five-episodes request parsing passed.")
+          folder_followup = "e folder eka athule video files bara ganak thiye.ethanin mul episodes 5 he gen karanna"
+          assert helper_ns["_is_episode_batch_request"](folder_followup)
+          assert helper_ns["_is_subtitle_request"](folder_followup)
+          assert helper_ns["_is_subtitle_request"]("generate sinhala sub")
+          for harmless_followup in ("ela", "hmm", "hadawada", "nice ban"):
+              assert not helper_ns["_is_subtitle_request"](harmless_followup), harmless_followup
+          print("Boruto folder path, first-five-episodes intent and no-duplicate follow-up tests passed.")
           from plugins import video_toolkit
           assert sorted(["Boruto 10.mp4", "Boruto 2.mp4"], key=video_toolkit._natural_key) == ["Boruto 2.mp4", "Boruto 10.mp4"]
           print("Episode filename natural-order sorting passed.")
