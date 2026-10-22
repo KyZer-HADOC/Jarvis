@@ -24,12 +24,14 @@ from plugins import _media as M
 PLUGIN = {
     "name": "video_toolkit",
     "description": (
-        "Edits video and audio files with ffmpeg. Use when the user wants to trim/cut, merge, "
-        "speed up or slow down, compress, make a GIF, extract audio, make a video vertical for "
-        "TikTok / Reels / Shorts, add subtitles or captions, or lay background music under a "
-        "video. Actions: info, trim, merge, extract_audio, vertical, speed, compress, gif, "
-        "subtitles, add_music. Works on local files by name or full path; the original is never "
-        "changed. Do NOT use to play a video (use video_player) or to download from YouTube."
+        "Edits video and audio files with ffmpeg. Use this for any VIDEO file when the user asks to "
+        "generate subtitles from its audio, create Sinhala/Tamil subtitles for a movie, or burn "
+        "captions into a new video. It first reuses a matching existing SRT if available; otherwise "
+        "it transcribes audio in checkpointed chunks and translates to the configured target language. "
+        "It also trims/cuts, merges, speeds up, compresses, makes GIFs, extracts audio, makes videos "
+        "vertical for TikTok/Reels/Shorts, and adds music. Actions: info, trim, merge, extract_audio, "
+        "vertical, speed, compress, gif, subtitles, add_music. Works on local full paths or names; "
+        "the original is never changed. Do NOT use to play videos or download from YouTube."
     ),
     "parameters": {
         "type": "OBJECT",
