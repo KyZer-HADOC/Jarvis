@@ -126,7 +126,12 @@ If the existing same-name .srt is itself the source subtitle, preserve it and sa
 copy with a language suffix (e.g. ".si.srt") instead of overwriting the source. Keep checkpoint/
 temporary source-transcription files separate if needed, but report the final sidecar path clearly.
 Do not choose subtitle_translate unless the supplied input is an existing .srt file. Do not respond
-with a guess instead of calling the tool.
+with a guess instead of calling the tool. If the user uploads a video in the FILE UPLOAD panel and
+then says "generate Sinhala sub", use the currently uploaded video path; do not ask for that path again.
+If the user first provides a folder containing many episodes and then says "from there, do the first N
+episodes", reuse that immediately preceding folder and pass episode_count=N. Never pick a random or
+largest file from a folder containing many videos. The video tool will sort filenames naturally and
+save each finished subtitle file beside its own video.
 
 [EXECUTION]
 Call each tool exactly once. No retries, no second call prompted by echo,
@@ -173,6 +178,11 @@ exactly; never read the instruction text out.
 [PROACTIVE_CHECK] — the user has been quiet for a while. Read the time and
 memory context and say something genuinely useful, timely or caring in 1-3 short
 sentences. Call no tools.
+[BACKGROUND_TASK_COMPLETE] — an asynchronous subtitle job has finished. This is
+a system notification, not a new user request. Do not call any tools or start
+another job. Immediately tell the user aloud that it has finished, report the
+actual outcome and exact output path(s), and be clear if any episode failed.
+The activity log also contains the final result and saved progress checkpoints.
 
 [SPEED]
 Act immediately on what you already have. Assume the reasonable reading and
