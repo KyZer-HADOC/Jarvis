@@ -108,17 +108,22 @@ def _looks_translated(value: str, original: str, code: str) -> bool:
 
 
 def _compatible_existing(path: Path, parsed: list[list[str]], original: list[str]) -> list[str] | None:
-    """Use an existing output only if its cue/timestamp layout matches the source."""
+    """Reuse an exact translation or a timestamp-matching prefix of a growing source SRT."""
     try:
         old_parsed, old_positions, old_lines = _parse(_read_text(path))
-        if len(old_lines) != len(original) or len(old_parsed) != len(parsed):
+        # During video transcription the source grows one audio chunk at a time.
+        # Its saved Sinhala sidecar is therefore expected to be a prefix of the new
+        # source, not the same length. Never reuse a file with extra/out-of-order cues.
+        if len(old_lines) > len(original) or len(old_parsed) > len(parsed):
             return None
-        for source_block, old_block in zip(parsed, old_parsed):
+        for source_block, old_block in zip(parsed[:len(old_parsed)], old_parsed):
             source_times = [line.strip() for line in source_block if "-->" in line]
             old_times = [line.strip() for line in old_block if "-->" in line]
             if source_times != old_times:
                 return None
-        return old_lines
+        if len(old_positions) != len(old_lines):
+            return None
+        return old_lines + original[len(old_lines):]
     except Exception:
         return None
 
