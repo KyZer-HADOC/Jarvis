@@ -351,21 +351,28 @@ def _extract_windows_path(text: str) -> str:
 
 
 def _extract_episode_count(text: str) -> int:
-    """Return N for requests to handle the first N episodes; zero means single-file mode."""
+    """Return N for requests to handle the first N episodes; zero means unspecified."""
     raw = str(text or "")
     first = re.search(r"(?i)\b(?:mula|mulin|mul|first|from\s+the\s+start|starting\s+from)\b", raw)
     if not first:
         return 0
-    tail = raw[first.end():first.end() + 60]
+    tail = raw[first.end():first.end() + 80]
+    number = r"(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|paha|deka)"
     m = re.search(
-        r"(?i)\b(?:episodes?|eps?|epi)\s*(\d+)\b|\b(\d+)\s*(?:episodes?|eps?|epi)\b",
+        rf"(?i)\b(?:episodes?|eps?|epi)\s*({number})\b|\b({number})\s*(?:episodes?|eps?|epi)\b",
         tail,
     )
     if not m:
         return 0
+    value = str(m.group(1) or m.group(2)).casefold()
+    word_counts = {
+        "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+        "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+        "paha": 5, "deka": 10,
+    }
     try:
-        count = int(m.group(1) or m.group(2))
-    except (TypeError, ValueError):
+        count = int(value) if value.isdigit() else word_counts[value]
+    except (KeyError, TypeError, ValueError):
         return 0
     return min(50, max(1, count))
 
@@ -379,9 +386,12 @@ def _is_episode_batch_request(text: str) -> bool:
         raw,
     ))
     has_batch_context = bool(re.search(
-        r"\b(?:mula|mulin|first|ethanin|folder|there|from\s+there|start)\b", raw
+        r"\b(?:mula|mulin|mul|first|ethanin|folder|there|from\s+there|start)\b", raw
     ))
-    return has_episode and has_action and has_batch_context
+    has_count = _extract_episode_count(raw) > 0 or bool(re.search(
+        r"\b(?:one|two|three|four|five|six|seven|eight|nine|ten|paha|deka)\b", raw
+    ))
+    return has_episode and has_action and has_batch_context and has_count
 
 
 def _is_subtitle_request(text: str) -> bool:
@@ -1335,8 +1345,8 @@ class JarvisLive:
                 args["target_language"] = chosen_target or args.get("target_language") or args.get("language") or "Sinhala"
                 args["burn"] = burn_requested
                 episode_count = _extract_episode_count(user_text)
-                if episode_count > 1 or wants_episode_batch:
-                    args["episode_count"] = episode_count or 5
+                if episode_count > 0 and wants_episode_batch:
+                    args["episode_count"] = episode_count
             elif name == "subtitle_translate" and Path(current_media_ref).suffix.lower() != ".srt":
                 dispatch_name = "video_toolkit"
                 args = {
@@ -1346,8 +1356,8 @@ class JarvisLive:
                     "burn": burn_requested,
                 }
                 episode_count = _extract_episode_count(user_text)
-                if episode_count > 1 or wants_episode_batch:
-                    args["episode_count"] = episode_count or 5
+                if episode_count > 0 and wants_episode_batch:
+                    args["episode_count"] = episode_count
 
         # Refuse stale subtitle tool calls before dispatching them. This is the
         # guard that prevents a previous Naruto/other movie from being reused when
