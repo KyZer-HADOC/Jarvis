@@ -48,30 +48,19 @@ def normalize(target: str) -> tuple[str, str]:
 _GEMINI_COOLDOWN_UNTIL = 0.0
 
 
-def _llm(prompt: str, timeout_ms: int = 12_000) -> str:
-    # One fast REST request, then one backup. Do not walk the assistant model
-    # ladder for every subtitle batch; a timed-out provider is cooled down too.
-    global _GEMINI_COOLDOWN_UNTIL
+def _llm(prompt: str, timeout_ms: int = 18_000) -> str:
+    """Use Gemini’s model ladder first, with Groq/OpenRouter as a backup."""
     gemini_error = ""
     try:
         from core import gemini
-        if gemini.api_key() and time.monotonic() >= _GEMINI_COOLDOWN_UNTIL:
-            try:
-                client = gemini.client(timeout_ms=timeout_ms)
-                response = client.models.generate_content(
-                    model="gemini-2.5-flash-lite", contents=prompt
-                )
-                answer = (getattr(response, "text", None) or "").strip()
-                if answer:
-                    return answer
-                gemini_error = "Gemini returned an empty translation."
-                _GEMINI_COOLDOWN_UNTIL = time.monotonic() + 180
-            except Exception as exc:
-                gemini_error = str(exc)[:240]
-                # Do not wait through the same broken/quota-limited Gemini call
-                # for every batch in a two-hour movie. Groq/OpenRouter becomes the
-                # active provider for the rest of this run.
-                _GEMINI_COOLDOWN_UNTIL = time.monotonic() + 180
+        if gemini.api_key():
+            answer = gemini.text(prompt, tier=gemini.FAST,
+                                 timeout_ms=max(10_000, int(timeout_ms)), default="").strip()
+            if answer:
+                return answer
+            gemini_error = "Gemini’s available models did not return a translation."
+        else:
+            gemini_error = "No Gemini API key is configured."
     except Exception as exc:
         gemini_error = str(exc)[:240]
 
@@ -79,11 +68,21 @@ def _llm(prompt: str, timeout_ms: int = 12_000) -> str:
     try:
         return groq.ask(prompt, "", temperature=0.1, max_tokens=4000, timeout=25)
     except Exception as exc:
-        backup_error = str(exc)[:240]
+        groq_error = str(exc)[:240]
+        low = groq_error.lower()
+        if any(token in low for token in ("429", "rate limit", "rate_limit", "too many requests", "quota")):
+            try:
+                from core import gemini
+                if gemini.api_key():
+                    answer = gemini.text(prompt, tier=gemini.SMART,
+                                         timeout_ms=max(10_000, int(timeout_ms)), default="").strip()
+                    if answer:
+                        return answer
+            except Exception as retry_exc:
+                gemini_error = str(retry_exc)[:240]
         if gemini_error:
-            raise TranslateError(f"Gemini failed ({gemini_error}); Groq/OpenRouter backup failed ({backup_error}).")
-        raise TranslateError(backup_error)
-
+            raise TranslateError(f"Gemini failed ({gemini_error}); Groq/OpenRouter backup failed ({groq_error}).")
+        raise TranslateError(groq_error)
 
 def _json_array(text: str) -> list:
     text = re.sub(r"```(?:json)?", "", text or "")
