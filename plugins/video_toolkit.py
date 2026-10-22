@@ -445,7 +445,7 @@ def _subtitles(p, info, a, player, open_it):
             _write_srt(segments, source_srt)
             M.log(player, f"Saved speech-to-text checkpoint: {len(segments)} caption lines ({index + 1}/{total_chunks} parts).")
             preview = [
-                str(item.get("text", "")).strip().replace("\\n", " ")[:130]
+                str(item.get("text", "")).strip().replace("\n", " ")[:130]
                 for item in segments[-3:] if str(item.get("text", "")).strip()
             ]
             if preview:
