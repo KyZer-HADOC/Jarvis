@@ -45,18 +45,31 @@ def normalize(target: str) -> tuple[str, str]:
 
 
 def _llm(prompt: str, timeout_ms: int = 12_000) -> str:
-    # Subtitle translation is repetitive data processing, not deep reasoning. Use
-    # the fast lane and a bounded fallback so one bad model cannot appear to hang.
+    # One fast REST request, then one backup. Do not walk the full assistant model
+    # ladder for every 40-line subtitle batch; that made long movies look frozen.
+    gemini_error = ""
     try:
         from core import gemini
         if gemini.api_key():
-            text = gemini.text(prompt, gemini.FAST, timeout_ms=timeout_ms)
-            if text:
-                return text
-    except Exception:
-        pass
+            client = gemini.client(timeout_ms=timeout_ms)
+            response = client.models.generate_content(
+                model="gemini-2.5-flash-lite", contents=prompt
+            )
+            answer = (getattr(response, "text", None) or "").strip()
+            if answer:
+                return answer
+            gemini_error = "Gemini returned an empty translation."
+    except Exception as exc:
+        gemini_error = str(exc)[:240]
+
     from plugins import _groq as groq
-    return groq.ask(prompt, "", temperature=0.1, max_tokens=4000, timeout=30)
+    try:
+        return groq.ask(prompt, "", temperature=0.1, max_tokens=4000, timeout=25)
+    except Exception as exc:
+        backup_error = str(exc)[:240]
+        if gemini_error:
+            raise TranslateError(f"Gemini failed ({gemini_error}); Groq/OpenRouter backup failed ({backup_error}).")
+        raise TranslateError(backup_error)
 
 
 def _json_array(text: str) -> list:
