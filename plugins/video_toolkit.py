@@ -121,15 +121,18 @@ def _subtitle_destination(video_path: Path, target_code: str, source_srt: Path |
     if source_srt is not None:
         try:
             if same_name.resolve() == source_srt.resolve():
-                return M.unique(video_path.with_name(f"{video_path.stem}.{target_code}.srt"))
+                # Deterministic translated sidecar path: the translator validates
+                # an existing output and resumes it only when cue timestamps match.
+                return video_path.with_name(f"{video_path.stem}.{target_code}.srt")
         except OSError:
             pass
 
     if not same_name.exists():
         return same_name
 
-    # Never overwrite a different file that happens to occupy the desired path.
-    return M.unique(video_path.with_name(f"{video_path.stem}.{target_code}.srt"))
+    # Keep the source SRT intact. The translator reuses a compatible partial
+    # translation or chooses a unique suffix if the existing file is unrelated.
+    return video_path.with_name(f"{video_path.stem}.{target_code}.srt")
 
 
 def _video(name: str) -> tuple[Path, dict]:
