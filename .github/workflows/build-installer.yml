@@ -105,6 +105,8 @@ jobs:
           assert helper_ns["_is_subtitle_request"](folder_followup)
           assert helper_ns["_extract_episode_count"](folder_followup) == 5
           assert helper_ns["_extract_episode_count"]("ethanin mul episodes 3 he gen karanna") == 3
+          assert helper_ns["_extract_episode_count"]("from there generate the first five episodes") == 5
+          assert not helper_ns["_is_episode_batch_request"]("ethanin mul episodes gen karanna")
           assert helper_ns["_is_subtitle_request"]("generate sinhala sub")
           for harmless_followup in ("ela", "hmm", "hadawada", "nice ban"):
               assert not helper_ns["_is_subtitle_request"](harmless_followup), harmless_followup
