@@ -1356,7 +1356,7 @@ class JarvisLive:
                          and str(args.get("action", "")).lower() == "subtitles")
                         or dispatch_name == "subtitle_translate"
                     )
-                    _job_token = str(id(object())) if _is_subtitle_job else ""
+                    _job_token = str(time.monotonic_ns()) if _is_subtitle_job else ""
                     if _is_subtitle_job:
                         _source = str(args.get("file") or args.get("file_path") or "the selected media file")
                         _label = Path(_source.strip('"').strip("'")).name or _source
