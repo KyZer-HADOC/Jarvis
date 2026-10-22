@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import re
+from typing import Callable
 
 LANGS = {
     "si": "Sinhala", "sinhala": "Sinhala", "sinhalese": "Sinhala", "සිංහල": "Sinhala",
@@ -43,17 +44,19 @@ def normalize(target: str) -> tuple[str, str]:
     return _CODES.get(name, re.sub(r"[^a-z]", "", name.lower())[:3] or "xx"), name
 
 
-def _llm(prompt: str, timeout_ms: int = 60_000) -> str:
+def _llm(prompt: str, timeout_ms: int = 12_000) -> str:
+    # Subtitle translation is repetitive data processing, not deep reasoning. Use
+    # the fast lane and a bounded fallback so one bad model cannot appear to hang.
     try:
         from core import gemini
         if gemini.api_key():
-            text = gemini.text(prompt, gemini.SMART, timeout_ms=timeout_ms)
+            text = gemini.text(prompt, gemini.FAST, timeout_ms=timeout_ms)
             if text:
                 return text
     except Exception:
         pass
     from plugins import _groq as groq
-    return groq.ask(prompt, "", temperature=0.2, max_tokens=4000, timeout=90)
+    return groq.ask(prompt, "", temperature=0.1, max_tokens=4000, timeout=30)
 
 
 def _json_array(text: str) -> list:
@@ -76,53 +79,65 @@ def _prompt(lines: list[str], name: str, source: str | None) -> str:
     )
 
 
-def _batch(lines: list[str], name: str, source: str | None, budget: list[int]) -> tuple[list[str], int]:
-    """-> (translated lines, how many fell back to the original text)."""
+def _batch(lines: list[str], name: str, source: str | None,
+           allow_one_split: bool = True) -> tuple[list[str], int]:
+    """Translate one batch with a hard cap of three calls if formatting is invalid."""
     if not lines:
         return [], 0
-    if budget[0] <= 0:
-        return list(lines), len(lines)
-    budget[0] -= 1
+    fatal_markers = (
+        "api key", "invalid api", "unauthorized", "401", "403", "quota",
+        "rate limit", "429", "no working", "can't reach", "cannot reach",
+        "connection", "timed out", "timeout", "too long to answer",
+        "need an ai key", "don't have a groq", "authentication",
+    )
+    invalid = False
     try:
         out = _json_array(_llm(_prompt(lines, name, source)))
         if len(out) == len(lines) and all(isinstance(x, str) for x in out):
-            return [x.strip() or o for x, o in zip(out, lines)], 0
+            return [x.strip() or original for x, original in zip(out, lines)], 0
+        invalid = True
     except TranslateError:
         raise
-    except Exception as e:
-        msg = str(e).lower()
-        # Don't recursively send the same failed request hundreds of times for an
-        # invalid API key, exhausted quota or offline computer. Those aren't bad
-        # translations and splitting the batch cannot fix them.
-        fatal_markers = ("api key", "invalid api", "unauthorized", "401", "403", "quota",
-                         "rate limit", "429", "no working", "can't reach", "cannot reach",
-                         "connection", "timed out", "too long to answer", "need an ai key",
-                         "don't have a groq")
+    except Exception as exc:
+        msg = str(exc).lower()
         if any(marker in msg for marker in fatal_markers):
-            raise TranslateError(str(e))
-    if len(lines) == 1:                        # cannot be split further: keep the original, say so
-        return list(lines), 1
-    mid = len(lines) // 2
-    a, fa = _batch(lines[:mid], name, source, budget)
-    b, fb = _batch(lines[mid:], name, source, budget)
-    return a + b, fa + fb
+            raise TranslateError(str(exc))
+        invalid = True
+
+    # Some models wrap/omit JSON on a large response. Split just once, at most:
+    # recursive splitting on every bad response caused hundreds of API calls and
+    # looked like JARVIS had frozen. A still-invalid half is left in source text
+    # and reported rather than blocking the entire file indefinitely.
+    if invalid and allow_one_split and len(lines) > 4:
+        mid = len(lines) // 2
+        left, failed_left = _batch(lines[:mid], name, source, allow_one_split=False)
+        right, failed_right = _batch(lines[mid:], name, source, allow_one_split=False)
+        return left + right, failed_left + failed_right
+    return list(lines), len(lines)
 
 
 def translate_lines(lines: list[str], target: str, source: str | None = None,
-                    batch_size: int = 20) -> tuple[list[str], int]:
-    """Translate subtitle lines, one output per input. -> (translated, number left untranslated)."""
+                    batch_size: int = 40,
+                    progress: Callable[[int, int, list[str], int], None] | None = None
+                    ) -> tuple[list[str], int]:
+    """Translate lines in bounded batches. Progress receives done,total,partial_output,failed."""
     _, name = normalize(target)
+    batch_size = max(1, min(60, int(batch_size)))
     out: list[str] = []
     failed = 0
-    budget = [MAX_CALLS]
     for i in range(0, len(lines), batch_size):
-        part, f = _batch(lines[i:i + batch_size], name, source, budget)
-        out += part
+        part, f = _batch(lines[i:i + batch_size], name, source)
+        out.extend(part)
         failed += f
+        if progress:
+            # A callback failure must not lose a translation batch.
+            try:
+                progress(len(out), len(lines), list(out), failed)
+            except Exception:
+                pass
     if failed == len(lines) and lines:
-        raise TranslateError("I couldn't translate the lines. Check the AI key or the connection.")
+        raise TranslateError("I couldn't translate any lines. Check the AI API key, quota and internet connection.")
     return out, failed
-
 
 def translate_text(text: str, target: str) -> str:
     """One piece of free text (clipboard etc.)."""
