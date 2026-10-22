@@ -183,20 +183,29 @@ def resolve_file(name: str, exts: set[str] | None = None) -> Path:
     if valid_file(p):
         return p.resolve()
 
-    # If the user supplied a folder, only inspect that folder (and its immediate
-    # nested release folders); choosing a main file within that exact folder is safe.
     if p.is_dir():
-        picked = choose(candidates_in(p), p.name, allow_largest=True)
+        files_here = candidates_in(p)
+        if len(files_here) == 1:
+            return files_here[0].resolve()
+        picked = choose(files_here, p.name, allow_largest=False)
         if picked:
             return picked.resolve()
+        nested_files: list[Path] = []
         try:
             nested = [x for x in p.iterdir() if x.is_dir()]
             nested_files = [f for folder in nested for f in candidates_in(folder)]
-            picked = choose(nested_files, p.name, allow_largest=True)
+            if len(nested_files) == 1:
+                return nested_files[0].resolve()
+            picked = choose(nested_files, p.name, allow_largest=False)
             if picked:
                 return picked.resolve()
         except OSError:
             pass
+        if files_here or nested_files:
+            raise MediaError(
+                f"The folder '{p}' contains multiple media files. "
+                "Provide the exact episode filename or request the first N episodes."
+            )
         raise MediaError(f"I found the folder '{p}', but couldn't find a supported media file inside it.")
 
     # Extensionless or slightly abbreviated path: try matching the requested name
