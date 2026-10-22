@@ -89,6 +89,40 @@ def _render(parsed: list[list[str]], positions: list[tuple[int, int]], values: l
     return "\n\n".join("\n".join(block) for block in parsed).rstrip() + "\n"
 
 
+def _looks_translated(value: str, original: str, code: str) -> bool:
+    """Detect prior translations for script-based languages and resume partial files."""
+    if value.strip() == original.strip():
+        return False
+    ranges = {
+        "si": ((0x0D80, 0x0DFF),), "ta": ((0x0B80, 0x0BFF),),
+        "hi": ((0x0900, 0x097F),), "ja": ((0x3040, 0x30FF), (0x4E00, 0x9FFF)),
+        "ko": ((0xAC00, 0xD7AF), (0x1100, 0x11FF)), "zh": ((0x4E00, 0x9FFF),),
+        "ar": ((0x0600, 0x06FF),), "ru": ((0x0400, 0x04FF),),
+        "bn": ((0x0980, 0x09FF),), "ne": ((0x0900, 0x097F),),
+        "th": ((0x0E00, 0x0E7F),), "ur": ((0x0600, 0x06FF),),
+    }
+    script = ranges.get(code)
+    if not script:
+        return True
+    return any(start <= ord(ch) <= end for ch in value for start, end in script)
+
+
+def _compatible_existing(path: Path, parsed: list[list[str]], original: list[str]) -> list[str] | None:
+    """Use an existing output only if its cue/timestamp layout matches the source."""
+    try:
+        old_parsed, old_positions, old_lines = _parse(_read_text(path))
+        if len(old_lines) != len(original) or len(old_parsed) != len(parsed):
+            return None
+        for source_block, old_block in zip(parsed, old_parsed):
+            source_times = [line.strip() for line in source_block if "-->" in line]
+            old_times = [line.strip() for line in old_block if "-->" in line]
+            if source_times != old_times:
+                return None
+        return old_lines
+    except Exception:
+        return None
+
+
 def translate_srt_file(
     source_path: str | Path,
     target_language: str,
@@ -96,46 +130,69 @@ def translate_srt_file(
     output_path: str | Path | None = None,
     player=None,
 ) -> tuple[Path, int, int]:
-    """Translate one SRT and checkpoint after every batch. Returns (path, lines, untranslated)."""
+    """Translate an SRT in checkpointed batches, resuming any compatible partial output."""
     source = Path(source_path).expanduser()
     if not source.is_file():
         raise FileNotFoundError(f"SRT file not found: {source}")
     if source.suffix.lower() != ".srt":
         raise ValueError("This action needs an existing .srt subtitle file.")
-    text = _read_text(source)
-    parsed, positions, original = _parse(text)
+    parsed, positions, original = _parse(_read_text(source))
     code, target_name = T.normalize(target_language or "Sinhala")
     if output_path:
         destination = Path(output_path).expanduser()
         destination.parent.mkdir(parents=True, exist_ok=True)
         if destination.resolve() == source.resolve():
             destination = destination.with_name(f"{destination.stem}.{code}.srt")
-        destination = _unique(destination)
     else:
-        destination = _unique(source.with_name(f"{source.stem}.{code}.srt"))
+        destination = source.with_name(f"{source.stem}.{code}.srt")
+        destination.parent.mkdir(parents=True, exist_ok=True)
 
-    # Put a valid, timestamp-preserving file on disk before the first network request.
-    destination.write_text(_render(parsed, positions, original), encoding="utf-8-sig")
+    current = list(original)
+    if destination.is_file():
+        existing = _compatible_existing(destination, parsed, original)
+        if existing is not None:
+            current = [old if _looks_translated(old, src, code) else src
+                       for old, src in zip(existing, original)]
+        else:
+            destination = _unique(destination)
+
+    already_done = sum(1 for value, src in zip(current, original)
+                       if _looks_translated(value, src, code))
+    todo_indexes = [i for i, (value, src) in enumerate(zip(current, original))
+                    if not _looks_translated(value, src, code)]
+    destination.write_text(_render(parsed, positions, current), encoding="utf-8-sig")
+
     if player is not None:
         try:
-            player.write_log(f"JARVIS: Translating {len(original)} subtitle lines to {target_name}; saving progress to {destination}…")
+            if already_done:
+                player.write_log(f"JARVIS: Resuming translation: {already_done}/{len(original)} lines already translated; {len(todo_indexes)} left. Saving to {destination}...")
+            else:
+                player.write_log(f"JARVIS: Translating {len(original)} subtitle lines to {target_name}; saving progress to {destination}...")
         except Exception:
             pass
 
+    if not todo_indexes:
+        return destination, len(original), 0
+
+    todo_lines = [original[i] for i in todo_indexes]
+
     def checkpoint(done: int, total: int, partial: list[str], failed_count: int) -> None:
-        destination.write_text(_render(parsed, positions, partial + original[done:]), encoding="utf-8-sig")
+        for i, value in zip(todo_indexes[:done], partial[:done]):
+            current[i] = value
+        destination.write_text(_render(parsed, positions, current), encoding="utf-8-sig")
         if player is not None:
             try:
-                player.write_log(f"JARVIS: Subtitle translation {done}/{total} lines saved.")
+                player.write_log(f"JARVIS: Subtitle translation {min(len(original), already_done + done)}/{len(original)} lines saved to {destination}.")
             except Exception:
                 pass
 
     translated, failed = T.translate_lines(
-        original, target_name, source_language or None, batch_size=60, progress=checkpoint
+        todo_lines, target_name, source_language or None, batch_size=30, progress=checkpoint
     )
-    destination.write_text(_render(parsed, positions, translated), encoding="utf-8-sig")
-    return destination, len(translated), failed
-
+    for i, value in zip(todo_indexes, translated):
+        current[i] = value
+    destination.write_text(_render(parsed, positions, current), encoding="utf-8-sig")
+    return destination, max(0, len(original) - failed), failed
 
 def run(parameters: dict, player=None, session_memory=None) -> str:
     raw = str(parameters.get("file_path") or "").strip().strip('"').strip("'")
