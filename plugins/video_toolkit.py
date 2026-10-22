@@ -491,7 +491,7 @@ _ACTIONS = {
 
 def _natural_key(value: str):
     return tuple((0, int(part)) if part.isdigit() else (1, part.casefold())
-                 for part in re.split(r"(\\d+)", value))
+                 for part in re.split(r"(\d+), value))
 
 
 def _subtitle_folder_batch(folder: Path, count: int, parameters: dict, player=None) -> str:
@@ -519,7 +519,7 @@ def _subtitle_folder_batch(folder: Path, count: int, parameters: dict, player=No
     done = sum(1 for _, result in results if result.startswith("Done"))
     report = [f"Subtitle batch finished: {done}/{len(results)} episode(s) completed."]
     report.extend(f"{name}: {result}" for name, result in results)
-    return "\\n".join(report)
+    return "\n".join(report)
 
 
 def run(parameters: dict, player=None, session_memory=None) -> str:
