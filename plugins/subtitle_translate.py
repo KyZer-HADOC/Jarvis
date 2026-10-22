@@ -182,7 +182,16 @@ def translate_srt_file(
         destination.write_text(_render(parsed, positions, current), encoding="utf-8-sig")
         if player is not None:
             try:
-                player.write_log(f"JARVIS: Subtitle translation {min(len(original), already_done + done)}/{len(original)} lines saved to {destination}.")
+                saved_count = min(len(original), already_done + done)
+                player.write_log(
+                    f"JARVIS: Sinhala captions {saved_count}/{len(original)} saved to {destination}."
+                )
+                # Show a small live preview in the activity/chat log as well as
+                # writing the checkpoint to disk. Keep it short so progress remains readable.
+                preview = [str(line).strip().replace("\\n", " ")[:150]
+                           for line in partial[max(0, done - 3):done] if str(line).strip()]
+                if preview:
+                    player.write_log("JARVIS: Latest saved subtitle lines — " + " | ".join(preview))
             except Exception:
                 pass
 
