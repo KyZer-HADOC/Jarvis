@@ -1216,7 +1216,7 @@ class JarvisLive:
         requested_name = _extract_media_filename(user_text) if not requested_path else ""
         current_media_ref = requested_path or requested_name
         wants_subtitles = bool(re.search(
-            r"(?i)\b(?:subtitl\w*|subtitiles?|captions?|srt)\b|උපසිරැසි|උපසිරස", user_text
+            r"(?i)\b(?:subtitl\w*|subtitiles?|captions?|srt|sub)\b|උපසිරැසි|උපසිරස", user_text
         ))
         if wants_subtitles and current_media_ref:
             chosen_target = ""
