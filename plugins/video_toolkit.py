@@ -491,7 +491,7 @@ _ACTIONS = {
 
 def _natural_key(value: str):
     return tuple((0, int(part)) if part.isdigit() else (1, part.casefold())
-                 for part in re.split(r"(\d+), value))
+                 for part in re.split(r"(\d+)", value))
 
 
 def _subtitle_folder_batch(folder: Path, count: int, parameters: dict, player=None) -> str:
