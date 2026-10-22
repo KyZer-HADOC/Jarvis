@@ -131,7 +131,7 @@ def translate_srt_file(
                 pass
 
     translated, failed = T.translate_lines(
-        original, target_name, source_language or None, batch_size=40, progress=checkpoint
+        original, target_name, source_language or None, batch_size=60, progress=checkpoint
     )
     destination.write_text(_render(parsed, positions, translated), encoding="utf-8-sig")
     return destination, len(translated), failed
