@@ -33,7 +33,7 @@ PLUGIN_SETTINGS = {
     "namespace": "subtitle_translate",
     "title": "SUBTITLE TRANSLATION",
     "fields": [
-        {"key": "default_language", "label": "Default subtitle language", "type": "select",
+        {"key": "default_language", "label": "Default subtitle language", "type": "choice",
          "options": ["Sinhala", "Tamil", "English", "Hindi", "Japanese", "Korean", "Chinese", "French", "German", "Spanish"],
          "default": "Sinhala"},
     ],
