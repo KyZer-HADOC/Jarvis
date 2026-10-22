@@ -10,7 +10,7 @@ Video Toolkit — edit videos by voice with ffmpeg. No account, no API key
     "Put song.wav behind my video"                      -> add_music (pairs with music_create)
     "Pull the audio out of interview.mp4"
 
-Results land in ~/Videos/JARVIS and the original is never touched.
+Video edits land in ~/Videos/JARVIS and the original is never touched. Subtitle sidecar files are saved beside the source video, using the same filename base.
 Needs ffmpeg on PATH (winget install ffmpeg | brew install ffmpeg | apt install ffmpeg).
 """
 from __future__ import annotations
@@ -35,7 +35,10 @@ PLUGIN = {
         "vertical, speed, compress, gif, subtitles, add_music. MUST be called for any user request to "
         "generate/create subtitles for a given video or movie. Pass the user's exact path to file even "
         "if it has spaces, square brackets, no extension, or names a containing folder. Do not ask for "
-        "the path again before attempting. The original is never changed. Do NOT use to play videos or download from YouTube."
+        "the path again before attempting. For subtitles, save the final .srt beside the source video "
+        "using the exact same filename base (example: Naruto.mp4 -> Naruto.srt), not in the JARVIS output folder. "
+        "If a same-name SRT is the source file, preserve it and save the translation with a language suffix instead. "
+        "The original video is never changed. Do NOT use to play videos or download from YouTube."
     ),
     "parameters": {
         "type": "OBJECT",
@@ -106,6 +109,27 @@ def _result(player, path: Path, what: str, open_it: bool) -> str:
 
 def _out(src: Path, tag: str, ext: str | None = None, kind: str = "video") -> Path:
     return M.unique(M.out_dir(kind) / f"{src.stem}_{tag}{ext or src.suffix or '.mp4'}")
+
+
+def _subtitle_destination(video_path: Path, target_code: str, source_srt: Path | None = None) -> Path:
+    """Choose a sidecar SRT path beside the video without overwriting source subtitles."""
+    same_name = video_path.with_suffix(".srt")
+
+    # If the source subtitle already uses the exact sidecar name, keep it intact.
+    # There is no way to store a translation at the identical path without destroying
+    # the source, so use a language suffix for that one special case.
+    if source_srt is not None:
+        try:
+            if same_name.resolve() == source_srt.resolve():
+                return M.unique(video_path.with_name(f"{video_path.stem}.{target_code}.srt"))
+        except OSError:
+            pass
+
+    if not same_name.exists():
+        return same_name
+
+    # Never overwrite a different file that happens to occupy the desired path.
+    return M.unique(video_path.with_name(f"{video_path.stem}.{target_code}.srt"))
 
 
 def _video(name: str) -> tuple[Path, dict]:
@@ -353,7 +377,7 @@ def _subtitles(p, info, a, player, open_it):
     if sidecar is not None and sidecar.is_file():
         M.log(player, f"Found existing subtitles: {sidecar.name}. Translating those instead of re-listening to the video…")
         from plugins import subtitle_translate as ST
-        destination = out / f"{p.stem}.{target_code}.srt"  # Reuse/resume any existing partial translation.
+        destination = _subtitle_destination(p, target_code, source_srt=sidecar)  # Save beside movie; reuse any partial translation.
         try:
             saved, line_count, failed = ST.translate_srt_file(
                 sidecar, target_name, source_language or "English", output_path=destination, player=player
@@ -409,7 +433,7 @@ def _subtitles(p, info, a, player, open_it):
         if not segments:
             raise M.MediaError("I didn't hear any speech to caption.")
         # Already have a valid original-language SRT on disk before the slower translation starts.
-        destination = M.unique(out / f"{p.stem}.{target_code}.srt")
+        destination = _subtitle_destination(p, target_code)  # Exact sidecar name: movie.mp4 -> movie.srt.
         M.log(player, f"Speech recognition finished ({len(segments)} caption lines). Translating to {target_name}…")
         from plugins import subtitle_translate as ST
         try:
