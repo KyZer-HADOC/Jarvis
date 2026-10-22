@@ -1215,7 +1215,6 @@ class JarvisLive:
         requested_path = _extract_windows_path(user_text)
         requested_name = _extract_media_filename(user_text) if not requested_path else ""
         current_media_ref = requested_path or requested_name
-        low_user_text = user_text.casefold()
         wants_subtitles = bool(re.search(
             r"(?i)\b(?:subtitl\w*|subtitiles?|captions?|srt)\b|උපසිරැසි|උපසිරස", user_text
         ))
@@ -1258,7 +1257,7 @@ class JarvisLive:
         if is_subtitle_call and not (wants_subtitles and current_media_ref):
             result = (
                 "I did not start subtitle generation: your latest message did not contain both a subtitle request and a video/SRT path or filename. "
-                "I will not reuse an old movie path. Send the exact Boruto file path with your subtitle request."
+                "I will not reuse an old movie path. Send the exact video or subtitle file path with your subtitle request."
             )
             self.ui.write_log("SYS: Ignored a stale subtitle tool call because the current user turn did not specify its media file.")
             return types.FunctionResponse(id=fc.id, name=name, response={"result": result})
