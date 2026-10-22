@@ -89,12 +89,13 @@ jobs:
           main_tree = ast.parse(Path("main.py").read_text(encoding="utf-8"))
           helper_names = {
               "_extract_windows_path", "_extract_episode_count",
-              "_is_episode_batch_request", "_is_subtitle_request"
+              "_is_episode_batch_request", "_is_subtitle_request",
+              "_get_uploaded_media_reference"
           }
           helper_nodes = [node for node in main_tree.body
                           if isinstance(node, ast.FunctionDef) and node.name in helper_names]
           assert {node.name for node in helper_nodes} == helper_names, "Subtitle request helpers are missing."
-          helper_ns = {"re": re}
+          helper_ns = {"re": re, "Path": Path}
           exec(compile(ast.Module(body=helper_nodes, type_ignores=[]), "main.py", "exec"), helper_ns)
           spoken_request = r"E:\Anime\Boruto\Boruto TV Seiries\Boruto Clasic mula epi 5 he sinhala sub generate karanna"
           extracted_path = helper_ns["_extract_windows_path"](spoken_request)
@@ -118,6 +119,20 @@ jobs:
           # file merely because that is the only movie in a common user folder.
           import tempfile
           from plugins import _media, subtitle_translate as _st
+          # Regression for FILE: <name> loaded -> "generate sinhala sub".
+          # JarvisUI stores the chosen path as _current_file; FileDropZone uses
+          # current_file(). Both representations must resolve to the exact file.
+          with tempfile.TemporaryDirectory() as upload_tmp:
+              uploaded = Path(upload_tmp) / "01 - Boruto Uzumaki!.mp4"
+              uploaded.write_bytes(b"test upload")
+              fake_ui = type("FakeUI", (), {"_current_file": str(uploaded)})()
+              assert helper_ns["_get_uploaded_media_reference"](fake_ui) == str(uploaded)
+              fake_zone = type("FakeDropZone", (), {
+                  "current_file": lambda self: str(uploaded)
+              })()
+              zone_ui = type("FakeZoneUI", (), {"_drop_zone": fake_zone})()
+              assert helper_ns["_get_uploaded_media_reference"](zone_ui) == str(uploaded)
+          print("Uploaded-video follow-up reference tests passed (_current_file and FileDropZone).")
           # A previously saved first episode-chunk translation must be reused as a
           # prefix when the growing source transcript contains more timestamped cues.
           with tempfile.TemporaryDirectory() as tmp:
