@@ -335,7 +335,6 @@ def _extract_windows_path(text: str) -> str:
     if not match:
         return ""
     value = match.group(1).strip()
-    # The user often types the path first, followed by "generate Sinhala subtitles".
     task = re.search(
         r"(?i)\s+(?:generate|make|create|add|translate|burn|subtitle|subtitles|subtitiles|caption)\b",
         value,
@@ -343,6 +342,28 @@ def _extract_windows_path(text: str) -> str:
     if task:
         value = value[:task.start()].rstrip()
     return value.strip().strip('"').strip("'").rstrip(" ,;.")
+
+
+def _extract_media_filename(text: str) -> str:
+    """Extract a media filename mentioned in this turn when no full path was given."""
+    raw = (text or "").strip()
+    if not raw:
+        return ""
+    exts = r"mp4|mkv|mov|avi|webm|m4v|flv|wmv|srt|mp3|wav|m4a|flac|ogg|aac|opus"
+    # A drive-qualified path takes precedence and is kept exactly as provided.
+    win_path = _extract_windows_path(raw)
+    if win_path:
+        return win_path
+    match = re.search(rf"(?i)([A-Za-z0-9][A-Za-z0-9 _().\[\]+-]*\.(?:{exts})\b)", raw)
+    if not match:
+        return ""
+    value = match.group(1).strip().strip('"').strip("'")
+    # Strip natural-language command text before the filename; filenames with
+    # spaces, brackets and release suffixes stay intact.
+    prefix = re.search(r"(?is)^.*\b(?:for|from|file(?:\s+named)?|movie|video|path|on)\s+", value)
+    if prefix:
+        value = value[prefix.end():].strip()
+    return value
 
 
 TOOL_DECLARATIONS = [
@@ -1187,11 +1208,18 @@ class JarvisLive:
 
         # The Live model sometimes repeats "give me the full path" even though the
         # user already supplied one, or chooses the SRT-only translator for a movie.
-        # Recover the exact path from this turn and route subtitle requests locally.
+        # The Live model sometimes reuses a movie path from an earlier exchange.
+        # For subtitle jobs, only ever use a path or filename present in the CURRENT
+        # user turn. A compliment/status follow-up is not a new subtitle request.
         user_text = str(getattr(self, "_last_user_text", "") or "")
         requested_path = _extract_windows_path(user_text)
-        wants_subtitles = bool(re.search(r"(?i)\b(?:subtit\w*|caption\w*)\b", user_text))
-        if wants_subtitles and requested_path:
+        requested_name = _extract_media_filename(user_text) if not requested_path else ""
+        current_media_ref = requested_path or requested_name
+        low_user_text = user_text.casefold()
+        wants_subtitles = bool(re.search(
+            r"(?i)\b(?:subtitl\w*|subtitiles?|captions?|srt)\b|උපසිරැසි|උපසිරස", user_text
+        ))
+        if wants_subtitles and current_media_ref:
             chosen_target = ""
             if re.search(r"(?i)\bSinhala\b|සිංහල", user_text):
                 chosen_target = "Sinhala"
@@ -1206,20 +1234,34 @@ class JarvisLive:
             burn_requested = bool(re.search(r"(?i)\b(?:burn|embed|hardcode)\b", user_text))
             if name == "video_toolkit":
                 args["action"] = "subtitles"
-                args["file"] = requested_path
+                args["file"] = current_media_ref
                 args["target_language"] = chosen_target or args.get("target_language") or args.get("language") or "Sinhala"
                 args["burn"] = burn_requested
-            elif name == "subtitle_translate" and Path(requested_path).suffix.lower() != ".srt":
-                # Same model, same function-response ID; only the local handler changes.
-                # A movie path is not an SRT, so send it through the video transcription flow.
+            elif name == "subtitle_translate" and Path(current_media_ref).suffix.lower() != ".srt":
                 dispatch_name = "video_toolkit"
                 args = {
                     "action": "subtitles",
-                    "file": requested_path,
+                    "file": current_media_ref,
                     "target_language": chosen_target or "Sinhala",
                     "burn": burn_requested,
                 }
 
+        # Refuse stale subtitle tool calls before dispatching them. This is the
+        # guard that prevents a previous Naruto/other movie from being reused when
+        # the current turn contains no video path or filename.
+        is_subtitle_call = (
+            (name == "video_toolkit" and (
+                str(args.get("action", "")).lower().strip() == "subtitles" or wants_subtitles
+            ))
+            or name == "subtitle_translate"
+        )
+        if is_subtitle_call and not (wants_subtitles and current_media_ref):
+            result = (
+                "I did not start subtitle generation: your latest message did not contain both a subtitle request and a video/SRT path or filename. "
+                "I will not reuse an old movie path. Send the exact Boruto file path with your subtitle request."
+            )
+            self.ui.write_log("SYS: Ignored a stale subtitle tool call because the current user turn did not specify its media file.")
+            return types.FunctionResponse(id=fc.id, name=name, response={"result": result})
         print(f"[JARVIS] 🔧 {name}  {args}")
         self.ui.set_state("THINKING")
 
