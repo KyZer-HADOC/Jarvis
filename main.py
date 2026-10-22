@@ -370,6 +370,30 @@ def _extract_episode_count(text: str) -> int:
     return min(50, max(1, count))
 
 
+def _is_episode_batch_request(text: str) -> bool:
+    """Recognize a request to subtitle a numbered group of episodes from a known folder."""
+    raw = str(text or "").casefold()
+    has_episode = bool(re.search(r"\b(?:episodes?|eps?|epi)\b", raw))
+    has_action = bool(re.search(
+        r"\b(?:gen|generate|make|create|translate|hadanna|hadandoo|karanna|karan|sub)\b",
+        raw,
+    ))
+    has_batch_context = bool(re.search(
+        r"\b(?:mula|mulin|first|ethanin|folder|there|from\s+there|start)\b", raw
+    ))
+    return has_episode and has_action and has_batch_context
+
+
+def _is_subtitle_request(text: str) -> bool:
+    """Only start subtitle work for a real request, not praise or status follow-ups."""
+    raw = str(text or "")
+    explicit = bool(re.search(
+        r"(?i)\b(?:subtitl\w*|subtitiles?|captions?|srt|sub)\b|උපසිරැසි|උපසිරස",
+        raw,
+    ))
+    return explicit or _is_episode_batch_request(raw)
+
+
 def _extract_media_filename(text: str) -> str:
     """Extract a media filename mentioned in this turn when no full path was given."""
     raw = (text or "").strip()
@@ -676,6 +700,11 @@ class JarvisLive:
         # questions with unrelated screen/monitor actions.
         self._active_task_lock = threading.Lock()
         self._active_task: dict[str, str] | None = None
+        # A folder path may be supplied in one utterance and "do the first five"
+        # in the next. Keep only the most recently explicit media reference, and
+        # reuse it solely when the current utterance actually requests subtitles.
+        self._last_explicit_media_ref: str | None = None
+        self._last_explicit_media_time = 0.0
 
         self._enhanced_live = True  # proactive audio; auto-disabled if the server rejects it
         self._tuned_live    = True  # turn-taking / media / thinking knobs; same fallback
@@ -1106,26 +1135,37 @@ class JarvisLive:
         if mem_str:
             parts.append(mem_str)
 
-        # Recover only the context needed to answer follow-ups while a long-running
-        # subtitle job keeps working across a rejected/expired Live resume handle.
+        # Recover subtitle state across Live reconnects. Completed tasks remain available
+        # until another subtitle job replaces them, so "is it done?" has a real answer.
         with self._active_task_lock:
             _active_job = dict(self._active_task) if self._active_task else None
+            _recent_media = self._last_explicit_media_ref
         if _active_job:
+            _task_status = _active_job.get("status", "running")
+            if _task_status == "running":
+                parts.append(
+                    "[ACTIVE BACKGROUND TASK — CONTEXT RECOVERY]\n"
+                    f"Subtitle generation is RUNNING for {_active_job.get('label', 'the selected video')}. "
+                    f"Input path: {_active_job.get('source', 'the supplied media file')}. "
+                    f"Target language: {_active_job.get('target', 'Sinhala')}. "
+                    "The work runs in a background worker and the activity log shows saved checkpoints. "
+                    "If asked for status, answer briefly. Do NOT start a duplicate job unless explicitly asked."
+                )
+            else:
+                parts.append(
+                    "[LAST SUBTITLE TASK — COMPLETION CONTEXT]\n"
+                    f"Status: {_task_status}. Source: {_active_job.get('source', 'selected media')}. "
+                    f"Target: {_active_job.get('target', 'Sinhala')}. "
+                    f"Final result: {_active_job.get('result', 'See the activity log for details.')}. "
+                    "If the user asks whether it is done, give the actual recorded result and output path. "
+                    "Do not claim success unless the result says it succeeded. Do not restart the job."
+                )
+        if _recent_media:
             parts.append(
-                "[ACTIVE BACKGROUND TASK — CONTEXT RECOVERY]\n"
-                f"A subtitle-generation task is still running for "
-                f"{_active_job.get('label', 'the selected video')}. "
-                f"Input path: {_active_job.get('source', 'the supplied media file')}. "
-                f"Target language: {_active_job.get('target', 'Sinhala')}. "
-                "The worker continues even if the voice conversation reconnects; "
-                "a fresh Live session does not mean the job was cancelled. "
-                "If the user asks what you are doing, whether you are tracking it, "
-                "or makes a short follow-up, interpret that against this subtitle task "
-                "first. Briefly explain the task and point to the visible progress logs. "
-                "For these task-status questions, do not call screen_process, manage_monitor, "
-                "or unrelated tools, and do not start a duplicate subtitle job unless "
-                "the user explicitly asks to generate again. Never claim completion until "
-                "the worker has reported its final result."
+                "[RECENT MEDIA REFERENCE]\n"
+                f"Most recently supplied local media path/folder: {_recent_media}. "
+                "Use this only when the current message explicitly requests subtitles or clearly asks "
+                "for numbered episodes from that folder. Never use it for praise or generic status messages."
             )
         parts.append(sys_prompt)
 
@@ -1240,10 +1280,42 @@ class JarvisLive:
         user_text = str(getattr(self, "_last_user_text", "") or "")
         requested_path = _extract_windows_path(user_text)
         requested_name = _extract_media_filename(user_text) if not requested_path else ""
-        current_media_ref = requested_path or requested_name
-        wants_subtitles = bool(re.search(
-            r"(?i)\b(?:subtitl\w*|subtitiles?|captions?|srt|sub)\b|උපසිරැසි|උපසිරස", user_text
-        ))
+        explicit_media_ref = requested_path or requested_name
+        wants_subtitles = _is_subtitle_request(user_text)
+        wants_episode_batch = _is_episode_batch_request(user_text)
+
+        if explicit_media_ref:
+            with self._active_task_lock:
+                self._last_explicit_media_ref = explicit_media_ref
+                self._last_explicit_media_time = time.monotonic()
+
+        current_media_ref = explicit_media_ref
+        if wants_subtitles and not current_media_ref:
+            with self._active_task_lock:
+                recent_media_ref = self._last_explicit_media_ref
+                recent_media_age = time.monotonic() - self._last_explicit_media_time
+
+            # "from there, do the first five episodes" refers to the folder the
+            # user explicitly supplied immediately before it; prefer that folder
+            # over a single previously-uploaded episode.
+            if wants_episode_batch and recent_media_ref and recent_media_age < 1800:
+                current_media_ref = recent_media_ref
+
+            # An uploaded file is an explicit current UI selection. This handles
+            # "FILE: ... loaded" followed by "generate Sinhala sub" without asking
+            # for the path again.
+            if not current_media_ref:
+                try:
+                    uploaded_ref = str(self.ui.current_file or "").strip()
+                    if uploaded_ref and Path(uploaded_ref).is_file():
+                        current_media_ref = uploaded_ref
+                except Exception:
+                    pass
+
+            # Other concise subtitle follow-ups may refer to the most recent path,
+            # but only while it is fresh and only because this turn asks for subtitles.
+            if not current_media_ref and recent_media_ref and recent_media_age < 1800:
+                current_media_ref = recent_media_ref
         if wants_subtitles and current_media_ref:
             chosen_target = ""
             if re.search(r"(?i)\bSinhala\b|සිංහල", user_text):
@@ -1263,8 +1335,8 @@ class JarvisLive:
                 args["target_language"] = chosen_target or args.get("target_language") or args.get("language") or "Sinhala"
                 args["burn"] = burn_requested
                 episode_count = _extract_episode_count(user_text)
-                if episode_count > 1:
-                    args["episode_count"] = episode_count
+                if episode_count > 1 or wants_episode_batch:
+                    args["episode_count"] = episode_count or 5
             elif name == "subtitle_translate" and Path(current_media_ref).suffix.lower() != ".srt":
                 dispatch_name = "video_toolkit"
                 args = {
@@ -1274,8 +1346,8 @@ class JarvisLive:
                     "burn": burn_requested,
                 }
                 episode_count = _extract_episode_count(user_text)
-                if episode_count > 1:
-                    args["episode_count"] = episode_count
+                if episode_count > 1 or wants_episode_batch:
+                    args["episode_count"] = episode_count or 5
 
         # Refuse stale subtitle tool calls before dispatching them. This is the
         # guard that prevents a previous Naruto/other movie from being reused when
@@ -1288,10 +1360,10 @@ class JarvisLive:
         )
         if is_subtitle_call and not (wants_subtitles and current_media_ref):
             result = (
-                "I did not start subtitle generation: your latest message did not contain both a subtitle request and a video/SRT path or filename. "
-                "I will not reuse an old movie path. Send the exact video or subtitle file path with your subtitle request."
+                "I did not start subtitle generation because this turn has no clear subtitle request "
+                "or safe current media reference. I will not reuse an unrelated old movie."
             )
-            self.ui.write_log("SYS: Ignored a stale subtitle tool call because the current user turn did not specify its media file.")
+            self.ui.write_log("SYS: Ignored a subtitle tool call without a current subtitle request and safe media reference.")
             return types.FunctionResponse(id=fc.id, name=name, response={"result": result})
         print(f"[JARVIS] 🔧 {name}  {args}")
         self.ui.set_state("THINKING")
