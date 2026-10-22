@@ -38,6 +38,7 @@ PLUGIN = {
         "the path again before attempting. For subtitles, save the final .srt beside the source video "
         "using the exact same filename base (example: Naruto.mp4 -> Naruto.srt), not in the JARVIS output folder. "
         "If a same-name SRT is the source file, preserve it and save the translation with a language suffix instead. "
+        "If the user explicitly asks for the first N episodes and supplies a folder, process up to N video files in natural filename order. "
         "The original video is never changed. Do NOT use to play videos or download from YouTube."
     ),
     "parameters": {
@@ -47,7 +48,8 @@ PLUGIN = {
                 "type": "STRING",
                 "description": "info | trim | merge | extract_audio | vertical | speed | compress | gif | subtitles | add_music",
             },
-            "file": {"type": "STRING", "description": "Required input video path. Pass the user's local Windows path exactly, including drive letter, spaces and square brackets. A path without .mkv/.mp4 extension or a folder containing the movie is acceptable; the resolver will choose the matching media file."},
+            "file": {"type": "STRING", "description": "Required input video path. Pass the user's local Windows path exactly, including drive letter, spaces and square brackets. A path without .mkv/.mp4 extension or a folder containing the movie is acceptable."},
+            "episode_count": {"type": "INTEGER", "description": "Optional. When the user asks for the first N episodes and file is a folder, subtitle up to N videos in natural filename order. Do not use unless requested."},
             "files": {"type": "STRING", "description": "For merge: all files in order, separated by commas."},
             "start": {"type": "STRING", "description": "Start time: seconds, m:ss or h:mm:ss. For trim and gif."},
             "end": {"type": "STRING", "description": "End time, same format. For trim and gif."},
@@ -487,10 +489,52 @@ _ACTIONS = {
 }
 
 
+def _natural_key(value: str):
+    return tuple((0, int(part)) if part.isdigit() else (1, part.casefold())
+                 for part in re.split(r"(\\d+)", value))
+
+
+def _subtitle_folder_batch(folder: Path, count: int, parameters: dict, player=None) -> str:
+    """Subtitle the first N videos in an explicitly supplied episode folder."""
+    files = sorted(
+        (p for p in folder.rglob("*") if p.is_file() and p.suffix.lower() in M.VIDEO_EXTS),
+        key=lambda p: _natural_key(str(p.relative_to(folder))),
+    )
+    if not files:
+        return f"I couldn't find supported video files inside '{folder}'."
+    selected = files[:count]
+    if len(selected) < count:
+        M.log(player, f"Only {len(selected)} video file(s) were found, fewer than the requested {count}.")
+    results = []
+    for index, path in enumerate(selected, 1):
+        M.log(player, f"Episode batch {index}/{len(selected)}: {path.name}")
+        try:
+            p, info = _video(str(path))
+            result = _subtitles(p, info, parameters, player, False)
+        except M.MediaError as exc:
+            result = f"FAILED — {exc}"
+        except Exception as exc:
+            result = f"FAILED — {exc}"
+        results.append((path.name, result))
+    done = sum(1 for _, result in results if result.startswith("Done"))
+    report = [f"Subtitle batch finished: {done}/{len(results)} episode(s) completed."]
+    report.extend(f"{name}: {result}" for name, result in results)
+    return "\\n".join(report)
+
+
 def run(parameters: dict, player=None, session_memory=None) -> str:
     action = str(parameters.get("action", "")).strip().lower()
     open_it = bool(parameters.get("open_result"))
     try:
+        if action == "subtitles":
+            try:
+                episode_count = min(50, max(0, int(parameters.get("episode_count") or 0)))
+            except (TypeError, ValueError):
+                episode_count = 0
+            raw_file = str(parameters.get("file") or "").strip().strip('"').strip("'")
+            folder = Path(raw_file).expanduser()
+            if episode_count > 1 and folder.is_dir():
+                return _subtitle_folder_batch(folder, episode_count, parameters, player)
         if action == "merge":
             return _merge(parameters, player, open_it)
         fn = _ACTIONS.get(action)
