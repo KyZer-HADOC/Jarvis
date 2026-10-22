@@ -15,6 +15,8 @@ Needs ffmpeg on PATH (winget install ffmpeg | brew install ffmpeg | apt install 
 """
 from __future__ import annotations
 
+import difflib
+import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -297,23 +299,57 @@ def _subtitles(p, info, a, player, open_it):
         finally:
             shutil.rmtree(tmp_burn, ignore_errors=True)
 
-    # Prefer an existing sidecar subtitle. Re-transcribing a movie that already
-    # has an SRT wastes time, API quota and data.
+    # Prefer any matching SRT already beside the movie. Many releases use the
+    # same stem, while some downloads call the subtitle "English.srt" or "subs.srt".
+    # If there is only one SRT in the movie's folder, use it rather than transcribing
+    # the whole movie again. With multiple unrelated SRTs, require a good name match.
     sidecar = p.with_suffix(".srt")
     if not sidecar.is_file():
-        candidates = []
+        candidates: list[Path] = []
         try:
             candidates = sorted(
-                x for x in p.parent.glob(p.stem + "*.srt")
-                if x.is_file() and x.stem.lower() != (p.stem + "." + target_code).lower()
+                x for x in p.parent.glob("*.srt")
+                if x.is_file()
+                and x.stem.lower() not in {
+                    (p.stem + "." + target_code).lower(),
+                    (p.stem + ".source").lower(),
+                }
+                and not x.stem.lower().endswith("." + target_code)
             )
         except OSError:
-            pass
-        # Prefer a likely source/English sidecar, not an already translated .si/.ta file.
-        preferred = [x for x in candidates if x.stem.lower() in {
-            (p.stem + ".en").lower(), (p.stem + ".eng").lower(), (p.stem + ".english").lower()
-        }]
-        sidecar = (preferred or candidates or [None])[0]
+            candidates = []
+
+        movie_stem = p.stem.casefold()
+        def _norm_stem(value: str) -> str:
+            return re.sub(r"[^a-z0-9]+", "", value.casefold())
+
+        # Exact base name or language-tagged variants first.
+        matching = [
+            x for x in candidates
+            if x.stem.casefold() == movie_stem
+            or x.stem.casefold() in {
+                movie_stem + ".en", movie_stem + ".eng", movie_stem + ".english",
+                movie_stem + ".sub", movie_stem + ".subs",
+            }
+            or x.stem.casefold().startswith(movie_stem + ".")
+            or movie_stem.startswith(x.stem.casefold() + ".")
+        ]
+        if matching:
+            sidecar = matching[0]
+        elif len(candidates) == 1:
+            # A single SRT alongside this movie is almost certainly its sidecar,
+            # even if the user renamed the subtitle file.
+            sidecar = candidates[0]
+        elif candidates:
+            wanted = _norm_stem(p.stem)
+            ranked = sorted(
+                ((difflib.SequenceMatcher(None, wanted, _norm_stem(x.stem)).ratio(), x)
+                 for x in candidates),
+                key=lambda pair: pair[0], reverse=True,
+            )
+            sidecar = ranked[0][1] if ranked[0][0] >= 0.72 else None
+        else:
+            sidecar = None
     if sidecar is not None and sidecar.is_file():
         M.log(player, f"Found existing subtitles: {sidecar.name}. Translating those instead of re-listening to the video…")
         from plugins import subtitle_translate as ST
