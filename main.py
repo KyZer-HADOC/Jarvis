@@ -404,6 +404,43 @@ def _is_subtitle_request(text: str) -> bool:
     return explicit or _is_episode_batch_request(raw)
 
 
+def _get_uploaded_media_reference(ui) -> str:
+    """Return the exact currently uploaded local file from JarvisUI/FileDropZone."""
+    # The upload pane stores the selection in JarvisUI._current_file, while the
+    # FileDropZone exposes a current_file() getter. Check both UI shapes because
+    # treating the former as a missing public property drops valid follow-ups.
+    candidates = []
+    try:
+        value = getattr(ui, "current_file", None)
+        if callable(value):
+            value = value()
+        candidates.append(value)
+    except Exception:
+        pass
+    try:
+        candidates.append(getattr(ui, "_current_file", None))
+    except Exception:
+        pass
+    try:
+        zone = getattr(ui, "_drop_zone", None)
+        value = getattr(zone, "current_file", None)
+        if callable(value):
+            value = value()
+        candidates.append(value)
+    except Exception:
+        pass
+    for candidate in candidates:
+        path = str(candidate or "").strip()
+        if path:
+            try:
+                if Path(path).is_file():
+                    return path
+            except (OSError, ValueError, TypeError):
+                continue
+    return ""
+
+
+
 def _extract_media_filename(text: str) -> str:
     """Extract a media filename mentioned in this turn when no full path was given."""
     raw = (text or "").strip()
@@ -1315,29 +1352,9 @@ class JarvisLive:
             # "FILE: ... loaded" followed by "generate Sinhala sub" without asking
             # for the path again.
             if not current_media_ref:
-                # JarvisUI stores the upload at _current_file. The public
-                # current_file getter belongs to FileDropZone, not JarvisUI;
-                # looking up only self.ui.current_file therefore raises
-                # AttributeError and silently loses every uploaded-video follow-up.
-                # Accept either public/property or private UI storage, plus the
-                # drop-zone getter, so "FILE: ... loaded" -> "generate sinhala sub"
-                # resolves to the exact uploaded file instead of being rejected.
-                try:
-                    uploaded_value = getattr(self.ui, "current_file", None)
-                    if callable(uploaded_value):
-                        uploaded_value = uploaded_value()
-                    if not uploaded_value:
-                        uploaded_value = getattr(self.ui, "_current_file", None)
-                    if not uploaded_value:
-                        drop_zone = getattr(self.ui, "_drop_zone", None)
-                        uploaded_value = getattr(drop_zone, "current_file", None)
-                        if callable(uploaded_value):
-                            uploaded_value = uploaded_value()
-                    uploaded_ref = str(uploaded_value or "").strip()
-                    if uploaded_ref and Path(uploaded_ref).is_file():
-                        current_media_ref = uploaded_ref
-                except Exception as exc:
-                    print(f"[JARVIS] Could not resolve uploaded media selection: {exc}")
+                uploaded_ref = _get_uploaded_media_reference(self.ui)
+                if uploaded_ref:
+                    current_media_ref = uploaded_ref
 
             # Other concise subtitle follow-ups may refer to the most recent path,
             # but only while it is fresh and only because this turn asks for subtitles.
