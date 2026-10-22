@@ -323,10 +323,27 @@ def _is_repeat_chunk(txt: str, buf: list) -> bool:
     joined = " ".join(buf)
     return txt in joined
 
-def _clean_transcript(text: str) -> str:    
+def _clean_transcript(text: str) -> str:
     text = _CTRL_RE.sub("", text)
     text = re.sub(r"[\x00-\x08\x0b-\x1f]", "", text)
     return text.strip()
+
+
+def _extract_windows_path(text: str) -> str:
+    """Recover a Windows path the user supplied, even if the model drops its drive."""
+    match = re.search(r"(?i)([a-z]:\\[^\r\n]+)", text or "")
+    if not match:
+        return ""
+    value = match.group(1).strip()
+    # The user often types the path first, followed by "generate Sinhala subtitles".
+    task = re.search(
+        r"(?i)\s+(?:generate|make|create|add|translate|burn|subtitle|subtitles|subtitiles|caption)\b",
+        value,
+    )
+    if task:
+        value = value[:task.start()].rstrip()
+    return value.strip().strip('"').strip("'").rstrip(" ,;.")
+
 
 TOOL_DECLARATIONS = [
     # ── Inline tools ─────────────────────────────────────────────────────────
@@ -1137,7 +1154,43 @@ class JarvisLive:
 
     async def _execute_tool(self, fc) -> types.FunctionResponse:
         name = fc.name
+        dispatch_name = name
         args = dict(fc.args or {})
+
+        # The Live model sometimes repeats "give me the full path" even though the
+        # user already supplied one, or chooses the SRT-only translator for a movie.
+        # Recover the exact path from this turn and route subtitle requests locally.
+        user_text = str(getattr(self, "_last_user_text", "") or "")
+        requested_path = _extract_windows_path(user_text)
+        wants_subtitles = bool(re.search(r"(?i)\b(?:subtit\w*|caption\w*)\b", user_text))
+        if wants_subtitles and requested_path:
+            chosen_target = ""
+            if re.search(r"(?i)\bSinhala\b|සිංහල", user_text):
+                chosen_target = "Sinhala"
+            elif re.search(r"(?i)\bTamil\b|தமிழ்", user_text):
+                chosen_target = "Tamil"
+            elif re.search(r"(?i)\bEnglish\b", user_text):
+                chosen_target = "English"
+            elif re.search(r"(?i)\bHindi\b", user_text):
+                chosen_target = "Hindi"
+            elif re.search(r"(?i)\bJapanese\b", user_text):
+                chosen_target = "Japanese"
+            burn_requested = bool(re.search(r"(?i)\b(?:burn|embed|hardcode)\b", user_text))
+            if name == "video_toolkit":
+                args["action"] = "subtitles"
+                args["file"] = requested_path
+                args["target_language"] = chosen_target or args.get("target_language") or args.get("language") or "Sinhala"
+                args["burn"] = burn_requested
+            elif name == "subtitle_translate" and Path(requested_path).suffix.lower() != ".srt":
+                # Same model, same function-response ID; only the local handler changes.
+                # A movie path is not an SRT, so send it through the video transcription flow.
+                dispatch_name = "video_toolkit"
+                args = {
+                    "action": "subtitles",
+                    "file": requested_path,
+                    "target_language": chosen_target or "Sinhala",
+                    "burn": burn_requested,
+                }
 
         print(f"[JARVIS] 🔧 {name}  {args}")
         self.ui.set_state("THINKING")
@@ -1269,10 +1322,10 @@ class JarvisLive:
                     self.ui.show_content(_label, r)
 
             else:
-                if self._plugin_registry.has(name):
+                if self._plugin_registry.has(dispatch_name):
                     r = await loop.run_in_executor(
                         None,
-                        lambda: self._plugin_registry.run(name, args, player=self.ui, session_memory=None)
+                        lambda: self._plugin_registry.run(dispatch_name, args, player=self.ui, session_memory=None)
                     )
                     result = r or "Done."
                 else:
@@ -1556,6 +1609,7 @@ class JarvisLive:
 
                             full_in = " ".join(in_buf).strip()
                             if full_in:
+                                self._last_user_text = full_in
                                 self._last_out_logged = ""   # new exchange
                                 self.ui.write_log(f"You: {full_in}")
                                 self._session_log.append(f"User: {full_in}")
