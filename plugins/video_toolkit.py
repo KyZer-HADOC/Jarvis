@@ -397,13 +397,19 @@ def _subtitles(p, info, a, player, open_it):
             return burn_file(saved)
         return f"Done — translated {line_count} subtitle lines to {target_name}. Saved: {saved}.{note} The source SRT was not changed."
 
-    # No source SRT exists: transcribe the audio in ten-minute pieces. Each
-    # piece is small enough for the 25 MB upload limit and is checkpointed to disk.
+    # No source SRT exists: transcribe in ten-minute pieces, and translate each
+    # checkpoint immediately. The final sidecar is created early and grows on disk
+    # as audio recognition and Sinhala translation make progress.
     duration = float(info.get("duration") or 0.0)
     chunk_seconds = 600
     total_chunks = max(1, int((duration + chunk_seconds - 1) // chunk_seconds)) if duration > 0 else 1
     source_srt = M.unique(out / f"{p.stem}.source.srt")
+    destination = _subtitle_destination(p, target_code)
+    from plugins import subtitle_translate as ST
     segments: list[dict] = []
+    last_saved: Path | None = None
+    line_count = 0
+    failed = 0
     tmp = Path(tempfile.mkdtemp(prefix="jarvis_subs_"))
     try:
         for index in range(total_chunks):
@@ -424,7 +430,8 @@ def _subtitles(p, info, a, player, open_it):
                     _write_srt(segments, source_srt)
                     raise M.MediaError(
                         f"Speech recognition stopped at part {index + 1}/{total_chunks}: {e}. "
-                        f"The partial subtitles are saved at {source_srt}."
+                        f"The partial source transcript is saved at {source_srt}; "
+                        f"the current Sinhala subtitle checkpoint is {destination}."
                     )
                 raise M.MediaError(str(e))
             for seg in chunk_segments:
@@ -432,7 +439,9 @@ def _subtitles(p, info, a, player, open_it):
                 item["start"] = float(item["start"]) + start_sec
                 item["end"] = float(item["end"]) + start_sec
                 segments.append(item)
-            # A usable checkpoint exists as soon as the first chunk finishes.
+
+            # Save speech-recognition progress first so no work is lost if the
+            # translation service is temporarily unavailable.
             _write_srt(segments, source_srt)
             M.log(player, f"Saved speech-to-text checkpoint: {len(segments)} caption lines ({index + 1}/{total_chunks} parts).")
             preview = [
@@ -441,20 +450,44 @@ def _subtitles(p, info, a, player, open_it):
             ]
             if preview:
                 M.log(player, "Latest recognized caption draft — " + " | ".join(preview))
+
+            # Translate the growing source checkpoint now rather than waiting
+            # for the entire episode. The translator resumes any timestamp-matched
+            # Sinhala prefix and writes every completed batch to destination.
+            M.log(player, f"Saving Sinhala subtitle checkpoint for part {index + 1}/{total_chunks}…")
+            try:
+                last_saved, line_count, failed = ST.translate_srt_file(
+                    source_srt, target_name, source_language or "English",
+                    output_path=destination, player=player
+                )
+            except T.TranslateError as e:
+                M.log(
+                    player,
+                    f"Translation is not complete yet: {e}. The source checkpoint is saved at {source_srt}; "
+                    f"the sidecar checkpoint remains at {destination}. I will retry after the next audio part."
+                )
+            except Exception as e:
+                M.log(
+                    player,
+                    f"Could not update the Sinhala checkpoint after audio part {index + 1}: {e}. "
+                    f"Saved source transcript: {source_srt}"
+                )
+
         if not segments:
             raise M.MediaError("I didn't hear any speech to caption.")
-        # Already have a valid original-language SRT on disk before the slower translation starts.
-        destination = _subtitle_destination(p, target_code)  # Exact sidecar name: movie.mp4 -> movie.srt.
-        M.log(player, f"Speech recognition finished ({len(segments)} caption lines). Translating to {target_name}…")
-        from plugins import subtitle_translate as ST
+        M.log(player, f"Speech recognition finished ({len(segments)} caption lines). Checking the final Sinhala checkpoint…")
         try:
             saved, line_count, failed = ST.translate_srt_file(
-                source_srt, target_name, source_language or "English", output_path=destination, player=player
+                source_srt, target_name, source_language or "English",
+                output_path=destination, player=player
             )
         except T.TranslateError as e:
+            partial = last_saved or destination
             return (
-                f"Speech recognition finished, but translation failed: {e}. "
-                f"The original-language SRT is saved at {source_srt}; a translation checkpoint may be at {destination}."
+                f"Speech recognition finished, but Sinhala translation did not finish: {e}. "
+                f"The current output/checkpoint is saved at {partial}; "
+                f"the source-language checkpoint is saved at {source_srt}. "
+                "Run the subtitle request again to resume the saved translation."
             )
         note = f" {failed} line(s) remain in the source language." if failed else ""
         M.log(player, f"Finished subtitles: {saved}")
