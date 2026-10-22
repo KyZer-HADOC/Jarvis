@@ -623,6 +623,12 @@ class JarvisLive:
         self._proactive        = ProactiveEngine()
         self._last_user_speech = time.monotonic()  # updated on every user utterance
         self._session_log: list[str] = []          # conversation turns for end-of-session summary
+        # Long-running subtitle plugins continue in their worker thread if the Live
+        # conversation drops and reconnects. Keep the active task in RAM so a fresh
+        # Live session still knows what work is happening and doesn't answer status
+        # questions with unrelated screen/monitor actions.
+        self._active_task_lock = threading.Lock()
+        self._active_task: dict[str, str] | None = None
 
         self._enhanced_live = True  # proactive audio; auto-disabled if the server rejects it
         self._tuned_live    = True  # turn-taking / media / thinking knobs; same fallback
@@ -1052,6 +1058,28 @@ class JarvisLive:
         parts = [time_ctx, identity_ctx, creator_ctx]
         if mem_str:
             parts.append(mem_str)
+
+        # Recover only the context needed to answer follow-ups while a long-running
+        # subtitle job keeps working across a rejected/expired Live resume handle.
+        with self._active_task_lock:
+            _active_job = dict(self._active_task) if self._active_task else None
+        if _active_job:
+            parts.append(
+                "[ACTIVE BACKGROUND TASK — CONTEXT RECOVERY]\n"
+                f"A subtitle-generation task is still running for "
+                f"{_active_job.get('label', 'the selected video')}. "
+                f"Input path: {_active_job.get('source', 'the supplied media file')}. "
+                f"Target language: {_active_job.get('target', 'Sinhala')}. "
+                "The worker continues even if the voice conversation reconnects; "
+                "a fresh Live session does not mean the job was cancelled. "
+                "If the user asks what you are doing, whether you are tracking it, "
+                "or makes a short follow-up, interpret that against this subtitle task "
+                "first. Briefly explain the task and point to the visible progress logs. "
+                "For these task-status questions, do not call screen_process, manage_monitor, "
+                "or unrelated tools, and do not start a duplicate subtitle job unless "
+                "the user explicitly asks to generate again. Never claim completion until "
+                "the worker has reported its final result."
+            )
         parts.append(sys_prompt)
 
         cfg = dict(
@@ -1323,10 +1351,42 @@ class JarvisLive:
 
             else:
                 if self._plugin_registry.has(dispatch_name):
-                    r = await loop.run_in_executor(
-                        None,
-                        lambda: self._plugin_registry.run(dispatch_name, args, player=self.ui, session_memory=None)
+                    _is_subtitle_job = (
+                        (dispatch_name == "video_toolkit"
+                         and str(args.get("action", "")).lower() == "subtitles")
+                        or dispatch_name == "subtitle_translate"
                     )
+                    _job_token = str(id(object())) if _is_subtitle_job else ""
+                    if _is_subtitle_job:
+                        _source = str(args.get("file") or args.get("file_path") or "the selected media file")
+                        _label = Path(_source.strip('"').strip("'")).name or _source
+                        _target = str(args.get("target_language") or args.get("language") or "Sinhala")
+                        with self._active_task_lock:
+                            self._active_task = {
+                                "token": _job_token,
+                                "label": _label,
+                                "source": _source,
+                                "target": _target,
+                            }
+                        self.ui.write_log(
+                            f"SYS: Subtitle task active for {_label}; I will keep this context if the conversation reconnects."
+                        )
+
+                    def _run_plugin():
+                        try:
+                            return self._plugin_registry.run(
+                                dispatch_name, args, player=self.ui, session_memory=None
+                            )
+                        finally:
+                            # This finally runs in the worker thread even if the awaiting
+                            # Live receive task was cancelled by a socket reconnect.
+                            if _is_subtitle_job:
+                                with self._active_task_lock:
+                                    if (self._active_task
+                                            and self._active_task.get("token") == _job_token):
+                                        self._active_task = None
+
+                    r = await loop.run_in_executor(None, _run_plugin)
                     result = r or "Done."
                 else:
                     result = f"Unknown tool: {name}"
