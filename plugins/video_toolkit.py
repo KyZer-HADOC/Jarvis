@@ -44,8 +44,10 @@ PLUGIN = {
             "end": {"type": "STRING", "description": "End time, same format. For trim and gif."},
             "factor": {"type": "NUMBER", "description": "For speed: 2 = twice as fast, 0.5 = half speed (0.25 to 4)."},
             "fit": {"type": "STRING", "description": "For vertical: 'blur' (default, whole picture over a blurred background) or 'crop' (fill the screen)."},
-            "language": {"type": "STRING", "description": "For subtitles: ISO code of the spoken language (si, ta, en...). Empty = auto-detect."},
-            "burn": {"type": "BOOLEAN", "description": "For subtitles: true (default) burns captions into the video; false only writes the .srt file."},
+            "language": {"type": "STRING", "description": "For subtitles: TARGET subtitle language (Sinhala/si by default, Tamil/ta, English/en...). This is the output language, not the spoken audio language."},
+            "target_language": {"type": "STRING", "description": "Alternative explicit target subtitle language; overrides language."},
+            "source_language": {"type": "STRING", "description": "Optional language spoken in the original audio (e.g. English/en). Leave empty to let Whisper auto-detect."},
+            "burn": {"type": "BOOLEAN", "description": "Only set true if the user explicitly wants captions burned into a new video; otherwise save the .srt only for speed."},
             "music_file": {"type": "STRING", "description": "For add_music: the audio file to put under the video."},
             "music_volume": {"type": "NUMBER", "description": "For add_music: 0.05 to 1, default 0.25."},
             "open_result": {"type": "BOOLEAN", "description": "True to open the finished file."},
@@ -255,44 +257,137 @@ def _gif(p, info, a, player, open_it):
 
 def _subtitles(p, info, a, player, open_it):
     from plugins import _groq as groq
+    from plugins import _translate as T
+    from memory.config_manager import get_plugin_config
+
     if info["ok"] and not info["has_audio"]:
         raise M.MediaError("That video has no sound, so there is nothing to caption.")
-    lang = str(a.get("language") or "").strip().lower()[:5]
-    burn = a.get("burn") is not False
+
+    target = str(a.get("target_language") or a.get("language") or "").strip()
+    if not target:
+        try:
+            target = str(get_plugin_config("subtitle_translate").get("default_language") or "Sinhala")
+        except Exception:
+            target = "Sinhala"
+    target_code, target_name = T.normalize(target)
+    source_language = str(a.get("source_language") or "").strip().lower()[:5]
+    # Do not unexpectedly re-encode a whole movie. Burning in is opt-in.
+    burn = a.get("burn") is True
+    out = M.out_dir("video")
+
+    def burn_file(srt_path: Path) -> str:
+        M.log(player, "Subtitles are saved. Burning them into a new video now…")
+        tmp_burn = Path(tempfile.mkdtemp(prefix="jarvis_burn_"))
+        try:
+            shutil.copy2(srt_path, tmp_burn / "subs.srt")
+            tall = info["height"] > info["width"] > 0
+            style = f"FontSize={22 if tall else 18},Outline=2,Shadow=0,Alignment=2,MarginV={70 if tall else 25}"
+            if target_code == "si":
+                style += ",FontName=Nirmala UI"
+            video_out = _out(p, "subtitled", ".mp4")
+            M.run_ffmpeg(["-i", str(p), "-vf", f"subtitles=subs.srt:force_style='{style}'",
+                          *_VENC, str(video_out)], cwd=tmp_burn)
+            return _result(player, video_out, "Added subtitles", open_it) + f" Subtitle file: {srt_path}"
+        except M.MediaError as e:
+            return f"The subtitle file is already saved at {srt_path}, but burning it into the video failed: {e}"
+        finally:
+            shutil.rmtree(tmp_burn, ignore_errors=True)
+
+    # Prefer an existing sidecar subtitle. Re-transcribing a movie that already
+    # has an SRT wastes time, API quota and data.
+    sidecar = p.with_suffix(".srt")
+    if not sidecar.is_file():
+        candidates = []
+        try:
+            candidates = sorted(
+                x for x in p.parent.glob(p.stem + "*.srt")
+                if x.is_file() and x.stem.lower() != (p.stem + "." + target_code).lower()
+            )
+        except OSError:
+            pass
+        # Prefer a likely source/English sidecar, not an already translated .si/.ta file.
+        preferred = [x for x in candidates if x.stem.lower() in {
+            (p.stem + ".en").lower(), (p.stem + ".eng").lower(), (p.stem + ".english").lower()
+        }]
+        sidecar = (preferred or candidates or [None])[0]
+    if sidecar is not None and sidecar.is_file():
+        M.log(player, f"Found existing subtitles: {sidecar.name}. Translating those instead of re-listening to the video…")
+        from plugins import subtitle_translate as ST
+        destination = M.unique(out / f"{p.stem}.{target_code}.srt")
+        try:
+            saved, line_count, failed = ST.translate_srt_file(
+                sidecar, target_name, source_language or "English", output_path=destination, player=player
+            )
+        except T.TranslateError as e:
+            return f"Subtitle translation did not finish: {e}. A checkpoint may be saved at {destination}; the original SRT remains unchanged."
+        except Exception as e:
+            return f"I found {sidecar.name}, but couldn't translate it: {e}"
+        note = f" {failed} line(s) are still in the source language." if failed else ""
+        M.log(player, f"Subtitle file saved: {saved}")
+        if burn:
+            return burn_file(saved)
+        return f"Done — translated {line_count} subtitle lines to {target_name}. Saved: {saved}.{note} The source SRT was not changed."
+
+    # No source SRT exists: transcribe the audio in ten-minute pieces. Each
+    # piece is small enough for the 25 MB upload limit and is checkpointed to disk.
+    duration = float(info.get("duration") or 0.0)
+    chunk_seconds = 600
+    total_chunks = max(1, int((duration + chunk_seconds - 1) // chunk_seconds)) if duration > 0 else 1
+    source_srt = M.unique(out / f"{p.stem}.source.srt")
+    segments: list[dict] = []
     tmp = Path(tempfile.mkdtemp(prefix="jarvis_subs_"))
     try:
-        M.log(player, "Listening to the audio for captions…")
-        wav = tmp / "speech.mp3"
-        M.run_ffmpeg(["-i", str(p), "-vn", "-ac", "1", "-ar", "16000", "-b:a", "48k", str(wav)])
-        try:
-            segs = groq.transcribe_segments(wav, language=lang)
-        except groq.GroqError as e:
-            raise M.MediaError(str(e))
-        if not segs:
+        for index in range(total_chunks):
+            start_sec = index * chunk_seconds
+            length = min(chunk_seconds, max(0.0, duration - start_sec)) if duration > 0 else None
+            M.log(player, f"Preparing audio for subtitles — part {index + 1}/{total_chunks}…")
+            wav = tmp / f"speech_{index + 1:03d}.mp3"
+            args = []
+            if length is not None:
+                args += ["-ss", f"{start_sec:.2f}", "-t", f"{length:.2f}"]
+            args += ["-i", str(p), "-vn", "-ac", "1", "-ar", "16000", "-b:a", "32k", str(wav)]
+            M.run_ffmpeg(args, timeout=300)
+            M.log(player, f"Recognizing speech — part {index + 1}/{total_chunks} (this may take a little while)…")
+            try:
+                chunk_segments = groq.transcribe_segments(wav, language=source_language, timeout=90)
+            except groq.GroqError as e:
+                if segments:
+                    _write_srt(segments, source_srt)
+                    raise M.MediaError(
+                        f"Speech recognition stopped at part {index + 1}/{total_chunks}: {e}. "
+                        f"The partial subtitles are saved at {source_srt}."
+                    )
+                raise M.MediaError(str(e))
+            for seg in chunk_segments:
+                item = dict(seg)
+                item["start"] = float(item["start"]) + start_sec
+                item["end"] = float(item["end"]) + start_sec
+                segments.append(item)
+            # A usable checkpoint exists as soon as the first chunk finishes.
+            _write_srt(segments, source_srt)
+            M.log(player, f"Saved speech-to-text checkpoint: {len(segments)} caption lines ({index + 1}/{total_chunks} parts).")
+        if not segments:
             raise M.MediaError("I didn't hear any speech to caption.")
-        srt_final = M.unique(M.out_dir("video") / f"{p.stem}.srt")
-        _write_srt(segs, srt_final)
-        if not burn:
-            return f"Done. Wrote {len(segs)} caption lines to {srt_final.name} in {srt_final.parent.parent.name}/{srt_final.parent.name}."
-        # Run ffmpeg inside the temp folder so the subtitle path needs no escaping
-        # (drive letters and backslashes break the filter on Windows).
-        shutil.copy(srt_final, tmp / "subs.srt")
-        tall = info["height"] > info["width"] > 0
-        style = f"FontSize={22 if tall else 18},Outline=2,Shadow=0,Alignment=2,MarginV={70 if tall else 25}"
-        if lang == "si":
-            style += ",FontName=Nirmala UI"
-        out = _out(p, "subtitled", ".mp4")
+        # Already have a valid original-language SRT on disk before the slower translation starts.
+        destination = M.unique(out / f"{p.stem}.{target_code}.srt")
+        M.log(player, f"Speech recognition finished ({len(segments)} caption lines). Translating to {target_name}…")
+        from plugins import subtitle_translate as ST
         try:
-            M.run_ffmpeg(["-i", str(p), "-vf", f"subtitles=subs.srt:force_style='{style}'",
-                          *_VENC, str(out)], cwd=tmp)
-        except M.MediaError as e:
-            return (f"I wrote the captions to {srt_final.name}, but couldn't burn them in "
-                    f"({e}). Your ffmpeg may lack subtitle support.")
-        return _result(player, out, f"Added {len(segs)} caption lines", open_it) \
-            + f" The .srt is {srt_final.name}."
+            saved, line_count, failed = ST.translate_srt_file(
+                source_srt, target_name, source_language or "English", output_path=destination, player=player
+            )
+        except T.TranslateError as e:
+            return (
+                f"Speech recognition finished, but translation failed: {e}. "
+                f"The original-language SRT is saved at {source_srt}; a translation checkpoint may be at {destination}."
+            )
+        note = f" {failed} line(s) remain in the source language." if failed else ""
+        M.log(player, f"Finished subtitles: {saved}")
+        if burn:
+            return burn_file(saved)
+        return f"Done — generated and saved {line_count} subtitle lines in {target_name}: {saved}.{note} The original-language checkpoint is {source_srt}."
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
-
 
 def _add_music(p, info, a, player, open_it):
     music = M.resolve_file(str(a.get("music_file") or ""), M.AUDIO_EXTS)
