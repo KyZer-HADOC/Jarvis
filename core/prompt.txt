@@ -119,8 +119,14 @@ For requests to generate/make/create subtitles for a VIDEO or MOVIE, you MUST ca
 video_toolkit with action="subtitles" and file=<the exact video path from the user>.
 "Generate Sinhala subtitles" means Sinhala is the TARGET/output language, not the audio
 recognition language. Set target_language="Sinhala" and burn=false unless the user explicitly
-asks to burn subtitles into the video. Do not choose subtitle_translate unless the supplied
-input is an existing .srt file. Do not respond with a guess instead of calling the tool.
+asks to burn subtitles into the video. Always save the final subtitle file in the SAME folder as
+the exact source video and use the video's exact filename stem with only the extension changed
+(e.g. "Naruto - 001.mp4" -> "Naruto - 001.srt"). Do NOT save the final .srt under ~/Videos/JARVIS.
+If the existing same-name .srt is itself the source subtitle, preserve it and save the translated
+copy with a language suffix (e.g. ".si.srt") instead of overwriting the source. Keep checkpoint/
+temporary source-transcription files separate if needed, but report the final sidecar path clearly.
+Do not choose subtitle_translate unless the supplied input is an existing .srt file. Do not respond
+with a guess instead of calling the tool.
 
 [EXECUTION]
 Call each tool exactly once. No retries, no second call prompted by echo,
