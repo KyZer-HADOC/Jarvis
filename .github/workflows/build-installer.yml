@@ -84,6 +84,38 @@ jobs:
           assert _translate.normalize("ta") == ("ta", "Tamil"), _translate.normalize("ta")
           assert _translate.normalize("English") == ("en", "English"), _translate.normalize("English")
           print("Translation language-code checks passed.")
+          # Regression test: a missing Boruto path must never resolve to a Naruto
+          # file merely because that is the only movie in a common user folder.
+          import tempfile
+          from plugins import _media
+          with tempfile.TemporaryDirectory() as tmp:
+              test_root = Path(tmp)
+              fake_home = test_root / "home"
+              (fake_home / "Videos").mkdir(parents=True)
+              (fake_home / "Videos" / "Naruto - 001.mp4").write_bytes(b"unrelated video")
+              source_dir = test_root / "Boruto"
+              source_dir.mkdir()
+              old_home, old_search_dirs = _media.HOME, _media._SEARCH_DIRS
+              _media.HOME, _media._SEARCH_DIRS = fake_home, ("Videos",)
+              try:
+                  try:
+                      _media.resolve_file(str(source_dir / "Boruto - 291.mp4"), {".mp4"})
+                  except _media.MediaError:
+                      pass
+                  else:
+                      raise AssertionError("Missing explicit Boruto path resolved to an unrelated video.")
+                  try:
+                      _media.resolve_file("Boruto - 291.mp4", {".mp4"})
+                  except _media.MediaError:
+                      pass
+                  else:
+                      raise AssertionError("Bare Boruto filename resolved to an unrelated video.")
+                  wanted = source_dir / "Boruto - 291.mp4"
+                  wanted.write_bytes(b"the requested video")
+                  assert _media.resolve_file(str(wanted), {".mp4"}) == wanted.resolve()
+              finally:
+                  _media.HOME, _media._SEARCH_DIRS = old_home, old_search_dirs
+          print("Media path regression tests passed: missing Boruto never resolves to Naruto.")
           items = registry.list_for_ui()
           invalid = [p for p in items if not p.get("valid")]
           print(f"Discovered {len(items)} plugin files.")
