@@ -13,10 +13,10 @@ from plugins import _translate as T
 PLUGIN = {
     "name": "subtitle_translate",
     "description": (
-        "Translate an existing subtitle .srt file into another language, preserving every timestamp "
-        "and cue order. Use this when the user gives an SRT or asks for subtitles from a video that "
-        "already has a sidecar SRT. It saves a checkpoint while translating and reports the exact path. "
-        "Actions: translate."
+        "Translate ONLY an existing .srt subtitle file supplied by the user, preserving timestamps and cue order. "
+        "Do not use this tool for .mp4/.mkv/.mov or any audio/video file; use video_toolkit with action "
+        "subtitles for those, because it can find a sidecar SRT or transcribe the video. "
+        "This tool saves progress checkpoints and reports the exact output path. Actions: translate."
     ),
     "parameters": {
         "type": "OBJECT",
