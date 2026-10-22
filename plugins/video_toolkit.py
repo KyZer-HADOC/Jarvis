@@ -353,7 +353,7 @@ def _subtitles(p, info, a, player, open_it):
     if sidecar is not None and sidecar.is_file():
         M.log(player, f"Found existing subtitles: {sidecar.name}. Translating those instead of re-listening to the video…")
         from plugins import subtitle_translate as ST
-        destination = M.unique(out / f"{p.stem}.{target_code}.srt")
+        destination = out / f"{p.stem}.{target_code}.srt"  # Reuse/resume any existing partial translation.
         try:
             saved, line_count, failed = ST.translate_srt_file(
                 sidecar, target_name, source_language or "English", output_path=destination, player=player
