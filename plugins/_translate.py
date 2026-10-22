@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from typing import Callable
 
 LANGS = {
@@ -44,21 +45,33 @@ def normalize(target: str) -> tuple[str, str]:
     return _CODES.get(name, re.sub(r"[^a-z]", "", name.lower())[:3] or "xx"), name
 
 
+_GEMINI_COOLDOWN_UNTIL = 0.0
+
+
 def _llm(prompt: str, timeout_ms: int = 12_000) -> str:
-    # One fast REST request, then one backup. Do not walk the full assistant model
-    # ladder for every 40-line subtitle batch; that made long movies look frozen.
+    # One fast REST request, then one backup. Do not walk the assistant model
+    # ladder for every subtitle batch; a timed-out provider is cooled down too.
+    global _GEMINI_COOLDOWN_UNTIL
     gemini_error = ""
     try:
         from core import gemini
-        if gemini.api_key():
-            client = gemini.client(timeout_ms=timeout_ms)
-            response = client.models.generate_content(
-                model="gemini-2.5-flash-lite", contents=prompt
-            )
-            answer = (getattr(response, "text", None) or "").strip()
-            if answer:
-                return answer
-            gemini_error = "Gemini returned an empty translation."
+        if gemini.api_key() and time.monotonic() >= _GEMINI_COOLDOWN_UNTIL:
+            try:
+                client = gemini.client(timeout_ms=timeout_ms)
+                response = client.models.generate_content(
+                    model="gemini-2.5-flash-lite", contents=prompt
+                )
+                answer = (getattr(response, "text", None) or "").strip()
+                if answer:
+                    return answer
+                gemini_error = "Gemini returned an empty translation."
+                _GEMINI_COOLDOWN_UNTIL = time.monotonic() + 180
+            except Exception as exc:
+                gemini_error = str(exc)[:240]
+                # Do not wait through the same broken/quota-limited Gemini call
+                # for every batch in a two-hour movie. Groq/OpenRouter becomes the
+                # active provider for the rest of this run.
+                _GEMINI_COOLDOWN_UNTIL = time.monotonic() + 180
     except Exception as exc:
         gemini_error = str(exc)[:240]
 
