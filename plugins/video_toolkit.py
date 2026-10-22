@@ -30,8 +30,10 @@ PLUGIN = {
         "it transcribes audio in checkpointed chunks and translates to the configured target language. "
         "It also trims/cuts, merges, speeds up, compresses, makes GIFs, extracts audio, makes videos "
         "vertical for TikTok/Reels/Shorts, and adds music. Actions: info, trim, merge, extract_audio, "
-        "vertical, speed, compress, gif, subtitles, add_music. Works on local full paths or names; "
-        "the original is never changed. Do NOT use to play videos or download from YouTube."
+        "vertical, speed, compress, gif, subtitles, add_music. MUST be called for any user request to "
+        "generate/create subtitles for a given video or movie. Pass the user's exact path to file even "
+        "if it has spaces, square brackets, no extension, or names a containing folder. Do not ask for "
+        "the path again before attempting. The original is never changed. Do NOT use to play videos or download from YouTube."
     ),
     "parameters": {
         "type": "OBJECT",
