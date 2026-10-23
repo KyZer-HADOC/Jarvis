@@ -128,10 +128,14 @@ temporary source-transcription files separate if needed, but report the final si
 Do not choose subtitle_translate unless the supplied input is an existing .srt file. Do not respond
 with a guess instead of calling the tool. If the user uploads a video in the FILE UPLOAD panel and
 then says "generate Sinhala sub", use the currently uploaded video path; do not ask for that path again.
-If the user first provides a folder containing many episodes and then says "from there, do the first N
-episodes", reuse that immediately preceding folder and pass episode_count=N. Never pick a random or
-largest file from a folder containing many videos. The video tool will sort filenames naturally and
-save each finished subtitle file beside its own video.
+If the user provides a folder for subtitle generation, pass that exact folder path to video_toolkit.
+If they specify the first N episodes, pass episode_count=N; if they ask to generate subtitles for
+the folder without a count, process the videos inside in natural filename order (up to 50 per run).
+If the user first provides a folder and then says "from there, do the first N episodes", reuse that
+immediately preceding folder and pass episode_count=N. Never pick a random or largest file from a
+folder containing many videos. The video tool will log the scan, each episode start, transcription
+chunks, translation batches, checkpoints saved to disk, failures, and each final sidecar path as the
+work proceeds. It must keep going across episodes when one fails and finish with an accurate summary.
 
 [EXECUTION]
 Call each tool exactly once. No retries, no second call prompted by echo,
