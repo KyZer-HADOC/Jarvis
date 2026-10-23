@@ -8,6 +8,7 @@ This module must not import NumPy, Qt, or ML packages at import time.
 from __future__ import annotations
 
 import os
+import sys
 import threading
 
 _GIB = 1024 ** 3
@@ -137,15 +138,18 @@ def apply_process_limits() -> dict:
         actions.append("numeric worker pools limited to one thread")
     except Exception:
         pass
-    try:
-        import torch
-        torch.set_num_threads(1)
+    # If an optional local model has already imported PyTorch, clamp it without
+    # importing PyTorch solely for this feature (which would cost hundreds of MB).
+    torch = sys.modules.get("torch")
+    if torch is not None:
         try:
-            torch.set_num_interop_threads(1)
+            torch.set_num_threads(1)
+            try:
+                torch.set_num_interop_threads(1)
+            except Exception:
+                pass
+            actions.append("PyTorch CPU threads limited to one")
         except Exception:
             pass
-        actions.append("PyTorch CPU threads limited to one")
-    except Exception:
-        pass
 
     return {**info, "profile": graphics_profile(), "limits": actions}
