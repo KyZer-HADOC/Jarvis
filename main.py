@@ -15,11 +15,16 @@ if _platform.system() == "Windows":
     _subprocess.Popen = _Popen
 
 
-# Keep numerical libraries from spawning a worker thread per CPU core. JARVIS is
-# a real-time voice app; a large BLAS/OpenMP pool can starve Windows on older PCs.
-# Power users can explicitly opt out before launching with JARVIS_ALLOW_MULTITHREADING=1.
+# Detect constrained hardware before NumPy/Qt/ML libraries are imported. Only
+# low-resource PCs need strict BLAS/OpenMP thread caps; higher-end PCs keep their
+# normal numerical-library parallelism. Opt out on any PC with the environment flag.
 import os as _os
-if _os.environ.get("JARVIS_ALLOW_MULTITHREADING") != "1":
+try:
+    from core.performance import hardware_info as _early_hardware_info
+    _early_low_resource = bool(_early_hardware_info().get("low_resource"))
+except Exception:
+    _early_low_resource = (_os.cpu_count() or 2) <= 4
+if _early_low_resource and _os.environ.get("JARVIS_ALLOW_MULTITHREADING") != "1":
     for _thread_var in (
         "OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
         "NUMEXPR_NUM_THREADS", "VECLIB_MAXIMUM_THREADS", "BLIS_NUM_THREADS",
