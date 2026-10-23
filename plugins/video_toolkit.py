@@ -171,6 +171,132 @@ def _write_srt(segments: list[dict], path: Path) -> None:
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
+def _parse_srt_time(value: str) -> float:
+    """Convert HH:MM:SS,mmm (or HH:MM:SS.mmm) into seconds."""
+    match = re.fullmatch(r"\s*(\d{1,3}):(\d{2}):(\d{2})[,.](\d{1,3})\s*", value)
+    if not match:
+        raise ValueError(f"Invalid SRT timestamp: {value!r}")
+    hours, minutes, seconds, fraction = match.groups()
+    milliseconds = int(fraction.ljust(3, "0")[:3])
+    return int(hours) * 3600 + int(minutes) * 60 + int(seconds) + milliseconds / 1000.0
+
+
+def _format_srt_time(value: float) -> str:
+    milliseconds = max(0, int(round(value * 1000)))
+    hours, milliseconds = divmod(milliseconds, 3_600_000)
+    minutes, milliseconds = divmod(milliseconds, 60_000)
+    seconds, milliseconds = divmod(milliseconds, 1000)
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d},{milliseconds:03d}"
+
+
+def _srt_contains_target_script(text: str, target_code: str) -> bool:
+    """Avoid re-translating a sidecar that is already in the requested language."""
+    scripts = {
+        "si": (0x0D80, 0x0DFF), "ta": (0x0B80, 0x0BFF),
+        "hi": (0x0900, 0x097F), "ja": (0x3040, 0x30FF),
+        "ko": (0xAC00, 0xD7AF), "zh": (0x4E00, 0x9FFF),
+    }
+    bounds = scripts.get(target_code)
+    if not bounds:
+        return False
+    letters = [ch for ch in text if ch.isalpha()]
+    target_letters = sum(1 for ch in letters if bounds[0] <= ord(ch) <= bounds[1])
+    return target_letters >= 3 and target_letters / max(1, len(letters)) >= 0.15
+
+
+def _normalize_srt_timing(
+    source_path: Path, destination: Path, duration: float, player=None
+) -> tuple[int, int, int]:
+    """Clean SRT timestamps against the video's duration and remove bad/overlapping cues.
+
+    This is timing sanity/sidecar preparation, not audio forced-alignment: it keeps
+    valid dialogue timings, trims cues beyond the video, and prevents cue overlap.
+    """
+    try:
+        text = source_path.read_text(encoding="utf-8-sig")
+    except UnicodeDecodeError:
+        text = source_path.read_text(encoding="cp1252", errors="replace")
+    blocks = re.split(r"\r?\n[ \t]*\r?\n", text.strip())
+    cues = []
+    skipped = 0
+    adjusted = 0
+    timing_re = re.compile(
+        r"^(\s*\d{1,3}:\d{2}:\d{2}[,.]\d{1,3})\s*-->\s*"
+        r"(\d{1,3}:\d{2}:\d{2}[,.]\d{1,3})(.*)$"
+    )
+    for block in blocks:
+        lines = block.splitlines()
+        time_index = next((i for i, line in enumerate(lines) if "-->" in line), None)
+        if time_index is None:
+            if any(line.strip() for line in lines):
+                skipped += 1
+            continue
+        match = timing_re.fullmatch(lines[time_index])
+        if not match:
+            skipped += 1
+            continue
+        try:
+            start = _parse_srt_time(match.group(1))
+            end = _parse_srt_time(match.group(2))
+        except ValueError:
+            skipped += 1
+            continue
+        if start < 0 or end <= start:
+            skipped += 1
+            continue
+        original_start, original_end = start, end
+        if duration > 0:
+            if start >= duration:
+                skipped += 1
+                continue
+            end = min(end, duration)
+        if end - start < 0.12:
+            end = min(duration, start + 0.35) if duration > 0 else start + 0.35
+        if end <= start:
+            skipped += 1
+            continue
+        if abs(start - original_start) > 0.0001 or abs(end - original_end) > 0.0001:
+            adjusted += 1
+        lines[time_index] = (
+            f"{_format_srt_time(start)} --> {_format_srt_time(end)}{match.group(3)}"
+        )
+        cues.append({"start": start, "end": end, "lines": lines})
+
+    # Keep the source ordering, but trim each cue before the next cue begins.
+    for index, cue in enumerate(cues):
+        if index + 1 < len(cues):
+            next_start = cues[index + 1]["start"]
+            if cue["end"] > next_start:
+                new_end = next_start - 0.04
+                if new_end >= cue["start"] + 0.12:
+                    cue["end"] = new_end
+                    time_index = next(
+                        i for i, line in enumerate(cue["lines"]) if "-->" in line
+                    )
+                    match = timing_re.fullmatch(cue["lines"][time_index])
+                    cue["lines"][time_index] = (
+                        f"{_format_srt_time(cue['start'])} --> "
+                        f"{_format_srt_time(cue['end'])}{match.group(3)}"
+                    )
+                    adjusted += 1
+
+    if not cues:
+        raise M.MediaError(f"No valid timed subtitle cues were found in {source_path}.")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    output = "\n\n".join(
+        "\n".join([str(index), *cue["lines"]])
+        for index, cue in enumerate(cues, 1)
+    ) + "\n"
+    destination.write_text(output, encoding="utf-8-sig")
+    if player is not None:
+        M.log(
+            player,
+            f"Subtitle timing check saved {len(cues)} cue(s) to {destination.name}; "
+            f"adjusted {adjusted} timing(s), skipped {skipped} invalid/out-of-video cue(s)."
+        )
+    return len(cues), adjusted, skipped
+
+
 # ── actions ────────────────────────────────────────────────────────────────────
 def _info(p: Path, info: dict, **_) -> str:
     bits = [f"{p.name}: {_mb(p)}"]
