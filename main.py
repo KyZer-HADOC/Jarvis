@@ -1496,6 +1496,22 @@ class JarvisLive:
             )
             return types.FunctionResponse(id=fc.id, name=name, response={"result": result})
 
+        # The Live model occasionally issues the same subtitle function twice in
+        # one turn. Return the in-flight task instead of launching a duplicate.
+        if is_subtitle_call and wants_subtitles and current_media_ref:
+            with self._active_task_lock:
+                _inflight = dict(self._active_task) if self._active_task else None
+            if _inflight and _inflight.get("status", "running") == "running":
+                _active_source = str(_inflight.get("source") or "").strip().casefold().rstrip("\\/")
+                _requested_source = str(current_media_ref).strip().casefold().rstrip("\\/")
+                if _active_source and _active_source == _requested_source:
+                    _msg = (
+                        f"Subtitle generation is already running for {_inflight.get('label', current_media_ref)}. "
+                        "I will not start a duplicate job; progress and saved checkpoints are in the activity log."
+                    )
+                    self.ui.write_log(f"SYS: Duplicate subtitle call ignored for {_requested_source}.")
+                    return types.FunctionResponse(id=fc.id, name=name, response={"result": _msg})
+
         print(f"[JARVIS] 🔧 {name}  {args}")
         self.ui.set_state("THINKING")
 
@@ -1643,6 +1659,7 @@ class JarvisLive:
                                 "label": _label,
                                 "source": _source,
                                 "target": _target,
+                                "status": "running",
                             }
                         self.ui.write_log(
                             f"SYS: Subtitle task active for {_label}; I will keep this context if the conversation reconnects."
