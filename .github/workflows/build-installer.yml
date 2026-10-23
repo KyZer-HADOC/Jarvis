@@ -115,6 +115,57 @@ jobs:
           from plugins import video_toolkit
           assert sorted(["Boruto 10.mp4", "Boruto 2.mp4"], key=video_toolkit._natural_key) == ["Boruto 2.mp4", "Boruto 10.mp4"]
           print("Episode filename natural-order sorting passed.")
+          # Existing generic Sinhala SRTs must attach to the movie's own basename,
+          # stay Sinhala (not be translated to Sinhala a second time), and have
+          # out-of-video/overlapping timestamps cleaned before delivery.
+          assert video_toolkit._srt_contains_target_script(
+              "1\\n00:00:01,000 --> 00:00:02,000\\nඔයා කොහෙද?\\n", "si"
+          )
+          with tempfile.TemporaryDirectory() as srt_tmp:
+              srt_root = Path(srt_tmp)
+              generic_srt = srt_root / "sinhalasub.srt"
+              movie_sidecar = srt_root / "Boruto 01.srt"
+              generic_srt.write_text(
+                  "1\\n00:00:01,000 --> 00:00:03,000\\nඔයා කොහෙද?\\n\\n"
+                  "2\\n00:00:02,500 --> 00:00:06,500\\nමම මෙතන.\\n\\n"
+                  "3\\n00:00:08,000 --> 00:00:09,000\\nඅන්තිම කොටස\\n",
+                  encoding="utf-8",
+              )
+              count, adjusted, skipped = video_toolkit._normalize_srt_timing(
+                  generic_srt, movie_sidecar, 5.0
+              )
+              result_text = movie_sidecar.read_text(encoding="utf-8-sig")
+              assert count == 2, (count, result_text)
+              assert adjusted >= 2, (adjusted, result_text)
+              assert skipped == 1, (skipped, result_text)
+              assert "Boruto 01.srt" == movie_sidecar.name
+              assert "00:00:05,000" in result_text
+              assert "00:00:08,000" not in result_text
+              assert "00:00:01,000 --> 00:00:02,460" in result_text
+          print("Sinhala SRT attachment, filename and timing-sanity tests passed.")
+          # A folder request with no episode count should process files naturally,
+          # not reject the folder or pick just one largest file.
+          with tempfile.TemporaryDirectory() as batch_tmp:
+              batch_root = Path(batch_tmp)
+              for filename in ("Boruto 10.mp4", "Boruto 2.mp4", "Boruto 1.mp4"):
+                  (batch_root / filename).write_bytes(b"mock video")
+              calls = []
+              old_video, old_subs = video_toolkit._video, video_toolkit._subtitles
+              try:
+                  video_toolkit._video = lambda name: (Path(name), {"mock": True})
+                  video_toolkit._subtitles = lambda path, info, args, player, open_it: (
+                      calls.append(path.name) or f"Done. Saved: {path.with_suffix('.srt')}"
+                  )
+                  class LogCapture:
+                      def write_log(self, message): pass
+                  batch_result = video_toolkit._subtitle_folder_batch(
+                      batch_root, 0, {"target_language": "Sinhala"}, LogCapture()
+                  )
+                  assert calls == ["Boruto 1.mp4", "Boruto 2.mp4", "Boruto 10.mp4"], calls
+                  assert "3/3 episode(s) completed" in batch_result, batch_result
+              finally:
+                  video_toolkit._video, video_toolkit._subtitles = old_video, old_subs
+          print("No-count subtitle folder batch and natural ordering tests passed.")
           # Regression test: a missing Boruto path must never resolve to a Naruto
           # file merely because that is the only movie in a common user folder.
           import tempfile
