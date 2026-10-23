@@ -115,6 +115,7 @@ jobs:
           from plugins import video_toolkit
           assert sorted(["Boruto 10.mp4", "Boruto 2.mp4"], key=video_toolkit._natural_key) == ["Boruto 2.mp4", "Boruto 10.mp4"]
           print("Episode filename natural-order sorting passed.")
+          import tempfile
           # Existing generic Sinhala SRTs must attach to the movie's own basename,
           # stay Sinhala (not be translated to Sinhala a second time), and have
           # out-of-video/overlapping timestamps cleaned before delivery.
