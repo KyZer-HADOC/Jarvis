@@ -1392,6 +1392,12 @@ class JarvisLive:
         wants_subtitles = direct_subtitle_intent or contextual_subtitle_intent
         wants_episode_batch = _is_episode_batch_request(user_text)
         episode_count = _extract_episode_count(user_text)
+        if affirmative_confirmation and episode_count <= 0 and remembered_episode_count <= 0:
+            # JARVIS has sometimes offered "the initial episodes" after a video upload.
+            # In this application established flow that means the first five episodes.
+            if re.search(r"(?i)initial episodes|first few episodes", assistant_text):
+                episode_count = 5
+                wants_episode_batch = True
 
         if explicit_media_ref:
             with self._active_task_lock:
@@ -1401,7 +1407,7 @@ class JarvisLive:
                 recent_media_age = 0.0
 
         # Remember numbered subtitle intent before any tool-call guard can reject it.
-        if direct_subtitle_intent and (wants_episode_batch or episode_count > 0):
+        if wants_subtitles and (wants_episode_batch or episode_count > 0):
             with self._active_task_lock:
                 self._last_subtitle_request_time = time.monotonic()
                 if episode_count > 0:
