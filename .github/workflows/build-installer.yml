@@ -118,9 +118,7 @@ jobs:
           # Existing generic Sinhala SRTs must attach to the movie's own basename,
           # stay Sinhala (not be translated to Sinhala a second time), and have
           # out-of-video/overlapping timestamps cleaned before delivery.
-          assert video_toolkit._srt_contains_target_script(
-              "1\n00:00:01,000 --> 00:00:02,000\nඔයා කොහෙද?\n", "si"
-          )
+          assert video_toolkit._srt_contains_target_script("\\u0dc3\\u0dd2\\u0d82\\u0dc4\\u0dbd", "si")
           with tempfile.TemporaryDirectory() as srt_tmp:
               srt_root = Path(srt_tmp)
               generic_srt = srt_root / "sinhalasub.srt"
