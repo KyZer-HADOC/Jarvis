@@ -29,6 +29,27 @@ jobs:
           python -m compileall -q main.py ui.py doctor.py setup.py actions core dashboard memory plugins
           if ($LASTEXITCODE -ne 0) { throw "Python syntax validation failed." }
 
+      - name: Smoke-test adaptive low-resource controller
+        shell: powershell
+        run: |
+          @'
+          from core.performance import hardware_info, graphics_profile, update_resource_pressure
+          info = hardware_info()
+          assert info["logical_cpus"] >= 1, info
+          base = 1 if info["low_resource"] else 0
+          update_resource_pressure(100, 99)
+          update_resource_pressure(100, 99)
+          assert graphics_profile() == 2, graphics_profile()
+          for _ in range(5):
+              update_resource_pressure(40, 40)
+          assert graphics_profile() == base, (graphics_profile(), base)
+          print(f"Adaptive performance controller passed on {info['logical_cpus']} logical CPUs.")
+          '@ | Set-Content -Path .performance-smoke.py -Encoding utf8
+          python .performance-smoke.py
+          $status = $LASTEXITCODE
+          Remove-Item .performance-smoke.py -Force -ErrorAction SilentlyContinue
+          if ($status -ne 0) { throw "Performance controller smoke test failed." }
+
       - name: Smoke-test exact maths engine
         shell: powershell
         run: |
