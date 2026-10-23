@@ -119,16 +119,16 @@ jobs:
           # stay Sinhala (not be translated to Sinhala a second time), and have
           # out-of-video/overlapping timestamps cleaned before delivery.
           assert video_toolkit._srt_contains_target_script(
-              "1\\n00:00:01,000 --> 00:00:02,000\\nඔයා කොහෙද?\\n", "si"
+              "1\n00:00:01,000 --> 00:00:02,000\nඔයා කොහෙද?\n", "si"
           )
           with tempfile.TemporaryDirectory() as srt_tmp:
               srt_root = Path(srt_tmp)
               generic_srt = srt_root / "sinhalasub.srt"
               movie_sidecar = srt_root / "Boruto 01.srt"
               generic_srt.write_text(
-                  "1\\n00:00:01,000 --> 00:00:03,000\\nඔයා කොහෙද?\\n\\n"
-                  "2\\n00:00:02,500 --> 00:00:06,500\\nමම මෙතන.\\n\\n"
-                  "3\\n00:00:08,000 --> 00:00:09,000\\nඅන්තිම කොටස\\n",
+                  "1\n00:00:01,000 --> 00:00:03,000\nඔයා කොහෙද?\n\n"
+                  "2\n00:00:02,500 --> 00:00:06,500\nමම මෙතන.\n\n"
+                  "3\n00:00:08,000 --> 00:00:09,000\nඅන්තිම කොටස\n",
                   encoding="utf-8",
               )
               count, adjusted, skipped = video_toolkit._normalize_srt_timing(
