@@ -471,6 +471,27 @@ def _subtitles(p, info, a, player, open_it):
                 }
                 and not x.stem.lower().endswith("." + target_code)
             )
+            # Generic names such as sinhalasub.srt do not identify which episode
+            # they belong to. Reuse one only when this directory has one video;
+            # never stamp the same generic subtitle onto every episode in a folder.
+            generic_stems = {
+                "sinhalasub", "sinhala_sub", "sinhala-sub", "sinhala sub",
+                "subtitle", "subtitles", "subs", "sub", "english", "eng",
+            }
+            sibling_videos = [
+                x for x in p.parent.iterdir()
+                if x.is_file() and x.suffix.lower() in M.VIDEO_EXTS
+            ]
+            if len(sibling_videos) > 1:
+                generic = [x for x in candidates if x.stem.casefold() in generic_stems]
+                if generic:
+                    candidates = [x for x in candidates if x not in generic]
+                    M.log(
+                        player,
+                        f"Not reusing generic subtitle name(s) {', '.join(x.name for x in generic)} "
+                        f"for {p.name}: this folder has {len(sibling_videos)} videos and the SRT doesn't "
+                        "identify a specific episode. I will use a matching SRT or transcribe this episode."
+                    )
         except OSError:
             candidates = []
 
