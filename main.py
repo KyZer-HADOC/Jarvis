@@ -339,9 +339,9 @@ def _extract_windows_path(text: str) -> str:
     # e.g. "E:\\Anime\\Boruto\\Boruto Clasic mula epi 5 he sinhala sub generate karanna".
     # Cut on recognizable command/language words, then keep the path itself untouched.
     stops = (
-        r"generate|make|create|add|translate|burn|subtitle|subtitles|subtitiles|"
+        r"generate|gen|make|create|add|translate|burn|subtitle|subtitles|subtitiles|"
         r"caption|captions|sinhala|tamil|english|hindi|japanese|\bsub\b|\bsrt\b|"
-        r"karanna|karapan|hadanna|hadandoo|mula|mulin|first|"
+        r"karanna|karapan|hadanna|hadandoo|mula|mulin|mul|epi|episodes?|eps?|first|"
         r"from\s+the\s+start|starting\s+from"
     )
     task = re.search(rf"(?i)\s+(?:{stops})\b", value)
@@ -357,7 +357,7 @@ def _extract_episode_count(text: str) -> int:
     if not first:
         return 0
     tail = raw[first.end():first.end() + 80]
-    number = r"(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|paha|deka)"
+    number = r"(?:\d+(?:he|k|ma|ta)?|one|two|three|four|five|six|seven|eight|nine|ten|paha|deka)"
     m = re.search(
         rf"(?i)\b(?:episodes?|eps?|epi)\s*({number})\b|\b({number})\s*(?:episodes?|eps?|epi)\b",
         tail,
@@ -371,7 +371,8 @@ def _extract_episode_count(text: str) -> int:
         "paha": 5, "deka": 10,
     }
     try:
-        count = int(value) if value.isdigit() else word_counts[value]
+        digit_match = re.match(r"\d+", value)
+        count = int(digit_match.group()) if digit_match else word_counts[value]
     except (KeyError, TypeError, ValueError):
         return 0
     return min(50, max(1, count))
