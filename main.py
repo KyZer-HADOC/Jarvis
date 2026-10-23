@@ -1447,19 +1447,19 @@ class JarvisLive:
 
         if wants_subtitles and current_media_ref:
             chosen_target = ""
-            if re.search(r"(?i)\\bSinhala\\b|සිංහල", user_text):
+            if re.search(r"(?i)\bSinhala\b|සිංහල", user_text):
                 chosen_target = "Sinhala"
-            elif re.search(r"(?i)\\bTamil\\b|தமிழ்", user_text):
+            elif re.search(r"(?i)\bTamil\b|தமிழ்", user_text):
                 chosen_target = "Tamil"
-            elif re.search(r"(?i)\\bEnglish\\b", user_text):
+            elif re.search(r"(?i)\bEnglish\b", user_text):
                 chosen_target = "English"
-            elif re.search(r"(?i)\\bHindi\\b", user_text):
+            elif re.search(r"(?i)\bHindi\b", user_text):
                 chosen_target = "Hindi"
-            elif re.search(r"(?i)\\bJapanese\\b", user_text):
+            elif re.search(r"(?i)\bJapanese\b", user_text):
                 chosen_target = "Japanese"
             elif contextual_subtitle_intent:
                 chosen_target = "Sinhala"
-            burn_requested = bool(re.search(r"(?i)\\b(?:burn|embed|hardcode)\\b", user_text))
+            burn_requested = bool(re.search(r"(?i)\b(?:burn|embed|hardcode)\b", user_text))
             if name == "video_toolkit":
                 args["action"] = "subtitles"
                 args["file"] = current_media_ref
