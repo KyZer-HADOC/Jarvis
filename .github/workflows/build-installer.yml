@@ -149,7 +149,7 @@ jobs:
               generic_root = Path(generic_tmp)
               generic_srt = generic_root / "sinhalasub.srt"
               generic_srt.write_text(
-                  "1\\n00:00:00,000 --> 00:00:01,000\\nඔයා කොහෙද?\\n",
+                  "1\n00:00:00,000 --> 00:00:01,000\nඔයා කොහෙද?\n",
                   encoding="utf-8",
               )
               first_video = generic_root / "Boruto 01.mp4"
@@ -165,7 +165,7 @@ jobs:
               generic_srt = single_root / "sinhalasub.srt"
               single_video.write_bytes(b"mock")
               generic_srt.write_text(
-                  "1\\n00:00:00,000 --> 00:00:01,000\\nඔයා කොහෙද?\\n",
+                  "1\n00:00:00,000 --> 00:00:01,000\nඔයා කොහෙද?\n",
                   encoding="utf-8",
               )
               result = video_toolkit._subtitles(
