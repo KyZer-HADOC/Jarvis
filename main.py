@@ -57,7 +57,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
-from core.performance import apply_process_limits, hardware_info, is_low_resource_hardware
+from core.performance import apply_process_limits
 
 import sounddevice as sd
 import numpy as np
@@ -2630,7 +2630,7 @@ class JarvisLive:
         # asyncio's default executor grows to many workers even on a four-core
         # machine. A small bounded pool prevents simultaneous plugins / probes
         # from saturating old CPUs and avoids unnecessary idle worker threads.
-        logical_cpus = max(1, int(os.cpu_count() or 2))
+        logical_cpus = max(1, int(_os.cpu_count() or 2))
         worker_count = max(2, min(4, logical_cpus - 1 if logical_cpus > 2 else 2))
         self._worker_pool = ThreadPoolExecutor(
             max_workers=worker_count, thread_name_prefix="JarvisWorker"
