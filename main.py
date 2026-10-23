@@ -15,6 +15,18 @@ if _platform.system() == "Windows":
     _subprocess.Popen = _Popen
 
 
+# Keep numerical libraries from spawning a worker thread per CPU core. JARVIS is
+# a real-time voice app; a large BLAS/OpenMP pool can starve Windows on older PCs.
+# Power users can explicitly opt out before launching with JARVIS_ALLOW_MULTITHREADING=1.
+import os as _os
+if _os.environ.get("JARVIS_ALLOW_MULTITHREADING") != "1":
+    for _thread_var in (
+        "OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
+        "NUMEXPR_NUM_THREADS", "VECLIB_MAXIMUM_THREADS", "BLIS_NUM_THREADS",
+    ):
+        _os.environ[_thread_var] = "1"
+
+
 # ── Console must survive non-UTF-8 code pages ────────────────────────────────
 # Every status line in this file carries an emoji, and on a legacy Windows
 # console the active code page is the system one — cp1254 in Turkey, cp1251 in
@@ -41,8 +53,11 @@ import time
 import json
 import sys
 import traceback
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
+
+from core.performance import apply_process_limits, hardware_info, is_low_resource_hardware
 
 import sounddevice as sd
 import numpy as np
@@ -2612,6 +2627,15 @@ class JarvisLive:
     async def run(self):
         self._loop = asyncio.get_event_loop()
         self._reconnect_event = asyncio.Event()
+        # asyncio's default executor grows to many workers even on a four-core
+        # machine. A small bounded pool prevents simultaneous plugins / probes
+        # from saturating old CPUs and avoids unnecessary idle worker threads.
+        logical_cpus = max(1, int(os.cpu_count() or 2))
+        worker_count = max(2, min(4, logical_cpus - 1 if logical_cpus > 2 else 2))
+        self._worker_pool = ThreadPoolExecutor(
+            max_workers=worker_count, thread_name_prefix="JarvisWorker"
+        )
+        self._loop.set_default_executor(self._worker_pool)
 
         # ── Wire the shared core services to the interface ───────────────────
         # The confirmation gate is useless without a way to ask, and a memory
@@ -2862,6 +2886,20 @@ def main():
     ui = JarvisUI("face.png")
 
     def runner():
+        # Yield to the operating system/foreground apps on constrained PCs.
+        # The helper never fails launch if Windows denies an optional limit.
+        try:
+            limits = apply_process_limits()
+            if limits.get("low_resource"):
+                ram = limits.get("ram_bytes", 0)
+                ram_text = f"{ram / (1024 ** 3):.1f} GB RAM" if ram else "RAM unknown"
+                extra = "; ".join(limits.get("limits", [])) or "safe fallback priority"
+                ui.write_log(
+                    f"SYS: Low-resource mode enabled — {limits.get('logical_cpus')} logical CPUs, "
+                    f"{ram_text}. {extra}. HUD will use the lightweight renderer."
+                )
+        except Exception as exc:
+            print(f"[Performance] Optional resource limits unavailable: {exc}")
         ui.wait_for_api_key()
         jarvis = JarvisLive(ui)
         try:
