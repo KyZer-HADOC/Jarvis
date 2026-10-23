@@ -37,7 +37,7 @@ PLUGIN = {
         "if it has spaces, square brackets, no extension, or names a containing folder. Do not ask for "
         "the path again before attempting. For subtitles, save the final .srt beside the source video "
         "using the exact same filename base (example: Naruto.mp4 -> Naruto.srt), not in the JARVIS output folder. "
-        "If a same-name SRT is the source file, preserve it and save the translation with a language suffix instead. "
+        "If a same-name SRT is the source, preserve it as <video-stem>.source.srt and save the final subtitle as <video-stem>.srt. If a generic sinhalasub.srt already contains Sinhala, use it only when it is unambiguously associated with one video, clean timestamp bounds/overlaps against video duration, and save it as the exact movie basename; never reuse it across multiple episodes. "
         "If the user supplies a folder for subtitle generation, scan its contents recursively and process the videos in natural filename order; if a first-N count was requested, process up to N, otherwise process up to 50 videos. Log each video, each progress/checkpoint event and each final sidecar path. "
         "The original video is never changed. Do NOT use to play videos or download from YouTube."
     ),
