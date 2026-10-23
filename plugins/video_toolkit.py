@@ -204,6 +204,36 @@ def _srt_contains_target_script(text: str, target_code: str) -> bool:
     return target_letters >= 3 and target_letters / max(1, len(letters)) >= 0.15
 
 
+def _filter_ambiguous_generic_srt(
+    candidates: list[Path], video_path: Path, player=None
+) -> list[Path]:
+    """Do not apply a generically named SRT to every episode in a multi-video folder."""
+    generic_stems = {
+        "sinhalasub", "sinhala_sub", "sinhala-sub", "sinhala sub",
+        "subtitle", "subtitles", "subs", "sub", "english", "eng",
+    }
+    try:
+        sibling_videos = [
+            item for item in video_path.parent.iterdir()
+            if item.is_file() and item.suffix.lower() in M.VIDEO_EXTS
+        ]
+    except OSError:
+        return candidates
+    if len(sibling_videos) <= 1:
+        return candidates
+    generic = [item for item in candidates if item.stem.casefold() in generic_stems]
+    if not generic:
+        return candidates
+    if player is not None:
+        M.log(
+            player,
+            f"Not reusing generic subtitle name(s) {', '.join(x.name for x in generic)} "
+            f"for {video_path.name}: this folder has {len(sibling_videos)} videos and the SRT "
+            "doesn't identify a specific episode. I will use a matching SRT or transcribe this episode."
+        )
+    return [item for item in candidates if item not in generic]
+
+
 def _normalize_srt_timing(
     source_path: Path, destination: Path, duration: float, player=None
 ) -> tuple[int, int, int]:
@@ -471,27 +501,7 @@ def _subtitles(p, info, a, player, open_it):
                 }
                 and not x.stem.lower().endswith("." + target_code)
             )
-            # Generic names such as sinhalasub.srt do not identify which episode
-            # they belong to. Reuse one only when this directory has one video;
-            # never stamp the same generic subtitle onto every episode in a folder.
-            generic_stems = {
-                "sinhalasub", "sinhala_sub", "sinhala-sub", "sinhala sub",
-                "subtitle", "subtitles", "subs", "sub", "english", "eng",
-            }
-            sibling_videos = [
-                x for x in p.parent.iterdir()
-                if x.is_file() and x.suffix.lower() in M.VIDEO_EXTS
-            ]
-            if len(sibling_videos) > 1:
-                generic = [x for x in candidates if x.stem.casefold() in generic_stems]
-                if generic:
-                    candidates = [x for x in candidates if x not in generic]
-                    M.log(
-                        player,
-                        f"Not reusing generic subtitle name(s) {', '.join(x.name for x in generic)} "
-                        f"for {p.name}: this folder has {len(sibling_videos)} videos and the SRT doesn't "
-                        "identify a specific episode. I will use a matching SRT or transcribe this episode."
-                    )
+            candidates = _filter_ambiguous_generic_srt(candidates, p, player)
         except OSError:
             candidates = []
 
