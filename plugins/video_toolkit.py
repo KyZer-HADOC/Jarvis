@@ -38,7 +38,7 @@ PLUGIN = {
         "the path again before attempting. For subtitles, save the final .srt beside the source video "
         "using the exact same filename base (example: Naruto.mp4 -> Naruto.srt), not in the JARVIS output folder. "
         "If a same-name SRT is the source file, preserve it and save the translation with a language suffix instead. "
-        "If the user explicitly asks for the first N episodes and supplies a folder, process up to N video files in natural filename order. "
+        "If the user supplies a folder for subtitle generation, scan its contents recursively and process the videos in natural filename order; if a first-N count was requested, process up to N, otherwise process up to 50 videos. Log each video, each progress/checkpoint event and each final sidecar path. "
         "The original video is never changed. Do NOT use to play videos or download from YouTube."
     ),
     "parameters": {
@@ -49,7 +49,7 @@ PLUGIN = {
                 "description": "info | trim | merge | extract_audio | vertical | speed | compress | gif | subtitles | add_music",
             },
             "file": {"type": "STRING", "description": "Required input video path. Pass the user's local Windows path exactly, including drive letter, spaces and square brackets. A path without .mkv/.mp4 extension or a folder containing the movie is acceptable."},
-            "episode_count": {"type": "INTEGER", "description": "Optional. When the user asks for the first N episodes and file is a folder, subtitle up to N videos in natural filename order. Do not use unless requested."},
+            "episode_count": {"type": "INTEGER", "description": "Optional. When the user asks for the first N episodes and file is a folder, subtitle up to N videos in natural filename order. If omitted for a folder, process up to 50 supported videos in natural order."},
             "files": {"type": "STRING", "description": "For merge: all files in order, separated by commas."},
             "start": {"type": "STRING", "description": "Start time: seconds, m:ss or h:mm:ss. For trim and gif."},
             "end": {"type": "STRING", "description": "End time, same format. For trim and gif."},
@@ -534,19 +534,36 @@ def _natural_key(value: str):
 
 
 def _subtitle_folder_batch(folder: Path, count: int, parameters: dict, player=None) -> str:
-    """Subtitle the first N videos in an explicitly supplied episode folder."""
+    """Subtitle the first N videos, or all videos (up to a safe cap), in a supplied folder."""
+    max_batch = 50
     files = sorted(
         (p for p in folder.rglob("*") if p.is_file() and p.suffix.lower() in M.VIDEO_EXTS),
         key=lambda p: _natural_key(str(p.relative_to(folder))),
     )
     if not files:
-        return f"I couldn't find supported video files inside '{folder}'."
-    selected = files[:count]
-    if len(selected) < count:
-        M.log(player, f"Only {len(selected)} video file(s) were found, fewer than the requested {count}.")
+        message = f"I couldn't find supported video files inside '{folder}'."
+        M.log(player, message)
+        return message
+
+    requested_count = max(0, int(count or 0))
+    limit = min(requested_count, max_batch) if requested_count else max_batch
+    selected = files[:limit]
+    if requested_count and requested_count > max_batch:
+        M.log(player, f"Safety limit: processing at most {max_batch} episodes in one batch.")
+    M.log(
+        player,
+        f"Subtitle folder scan complete: found {len(files)} video(s) in '{folder}'. "
+        f"Queueing {len(selected)} in natural filename order; each episode's SRT is saved beside its video."
+    )
+    if requested_count and len(files) < requested_count:
+        M.log(player, f"Only {len(files)} video file(s) were found, fewer than the requested {requested_count}.")
+    if not requested_count and len(files) > max_batch:
+        M.log(player, f"This folder has {len(files)} videos; processing the first {max_batch} now. Ask for the next group afterward.")
+
     results = []
     for index, path in enumerate(selected, 1):
-        M.log(player, f"Episode batch {index}/{len(selected)}: {path.name}")
+        M.log(player, f"\n===== SUBTITLE JOB {index}/{len(selected)}: {path.name} =====")
+        M.log(player, f"Source video: {path}")
         try:
             p, info = _video(str(path))
             result = _subtitles(p, info, parameters, player, False)
@@ -555,9 +572,18 @@ def _subtitle_folder_batch(folder: Path, count: int, parameters: dict, player=No
         except Exception as exc:
             result = f"FAILED — {exc}"
         results.append((path.name, result))
+        if result.startswith("Done"):
+            M.log(player, f"Episode {index}/{len(selected)} saved successfully: {path.with_suffix('.srt')}")
+        else:
+            M.log(player, f"Episode {index}/{len(selected)} ended without full success: {result}")
+
     done = sum(1 for _, result in results if result.startswith("Done"))
     report = [f"Subtitle batch finished: {done}/{len(results)} episode(s) completed."]
     report.extend(f"{name}: {result}" for name, result in results)
+    if len(files) > len(selected):
+        report.append(
+            f"{len(files) - len(selected)} additional video(s) were not started because of the per-batch limit."
+        )
     return "\n".join(report)
 
 
@@ -572,7 +598,11 @@ def run(parameters: dict, player=None, session_memory=None) -> str:
                 episode_count = 0
             raw_file = str(parameters.get("file") or "").strip().strip('"').strip("'")
             folder = Path(raw_file).expanduser()
-            if episode_count > 0 and folder.is_dir():
+            # A directory is a supported subtitle input even when the user did
+            # not say a specific episode count: process its videos in natural
+            # order (up to 50 per run), rather than asking them to list filenames
+            # or failing because the folder contains multiple videos.
+            if folder.is_dir():
                 return _subtitle_folder_batch(folder, episode_count, parameters, player)
         if action == "merge":
             return _merge(parameters, player, open_it)
