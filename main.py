@@ -1028,6 +1028,11 @@ class JarvisLive:
         return url, key, f"{url}/auto-login?key={key}", manual
 
     def _on_text_command(self, text: str):
+        # The Live API may send a tool call before its text echo/transcript arrives.
+        # Record typed commands synchronously so the subtitle router never sees the
+        # previous turn (or an empty string) when it validates the tool call.
+        self._last_user_text = str(text or "").strip()
+        self._last_user_speech = time.monotonic()
         if not self._loop or not self.session:
             return
         # Respect wake-word sleep: a typed command must not be answered while
