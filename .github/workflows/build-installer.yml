@@ -143,6 +143,41 @@ jobs:
               assert "00:00:08,000" not in result_text
               assert "00:00:01,000 --> 00:00:02,460" in result_text
           print("Sinhala SRT attachment, filename and timing-sanity tests passed.")
+          # A generic sinhalasub.srt should be usable for one video, but must
+          # never be copied onto every episode if multiple videos share a folder.
+          with tempfile.TemporaryDirectory() as generic_tmp:
+              generic_root = Path(generic_tmp)
+              generic_srt = generic_root / "sinhalasub.srt"
+              generic_srt.write_text(
+                  "1\\n00:00:00,000 --> 00:00:01,000\\nඔයා කොහෙද?\\n",
+                  encoding="utf-8",
+              )
+              first_video = generic_root / "Boruto 01.mp4"
+              second_video = generic_root / "Boruto 02.mp4"
+              first_video.write_bytes(b"mock")
+              second_video.write_bytes(b"mock")
+              assert video_toolkit._filter_ambiguous_generic_srt(
+                  [generic_srt], first_video
+              ) == []
+          with tempfile.TemporaryDirectory() as single_video_tmp:
+              single_root = Path(single_video_tmp)
+              single_video = single_root / "Thor.mp4"
+              generic_srt = single_root / "sinhalasub.srt"
+              single_video.write_bytes(b"mock")
+              generic_srt.write_text(
+                  "1\\n00:00:00,000 --> 00:00:01,000\\nඔයා කොහෙද?\\n",
+                  encoding="utf-8",
+              )
+              result = video_toolkit._subtitles(
+                  single_video,
+                  {"ok": True, "has_audio": True, "duration": 5.0, "width": 1280, "height": 720},
+                  {"target_language": "Sinhala"}, None, False
+              )
+              expected_sidecar = single_root / "Thor.srt"
+              assert expected_sidecar.is_file(), (result, expected_sidecar)
+              assert "Thor.srt" in result, result
+              assert generic_srt.is_file(), "The generic source SRT should be preserved."
+          print("Generic sinhalasub.srt matching tests passed: one-video reuse, multi-video protection, movie-name sidecar.")
           # A folder request with no episode count should process files naturally,
           # not reject the folder or pick just one largest file.
           with tempfile.TemporaryDirectory() as batch_tmp:
