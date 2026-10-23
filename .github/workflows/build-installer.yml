@@ -112,7 +112,8 @@ jobs:
           path_prompt = "Could you copy and paste the full location of the folder? I need it for the subtitles."
           path_reply = r"E:\Anime\Boruto\Boruto TV Seiries\Boruto Clasic"
           assert helper_ns["_is_path_reply_to_subtitle_prompt"](path_reply, path_prompt)
-          assert not helper_ns["_is_path_reply_to_subtitle_prompt"](path_reply, "How is your day?")          folder_followup = "e folder eka athule video files bara ganak thiye.ethanin mul episodes 5 he gen karanna"
+          assert not helper_ns["_is_path_reply_to_subtitle_prompt"](path_reply, "How is your day?")
+          folder_followup = "e folder eka athule video files bara ganak thiye.ethanin mul episodes 5 he gen karanna"
           assert helper_ns["_is_episode_batch_request"](folder_followup)
           assert helper_ns["_is_subtitle_request"](folder_followup)
           assert helper_ns["_extract_episode_count"](folder_followup) == 5
