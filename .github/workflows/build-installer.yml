@@ -90,7 +90,8 @@ jobs:
           helper_names = {
               "_extract_windows_path", "_extract_episode_count",
               "_is_episode_batch_request", "_is_subtitle_request",
-              "_get_uploaded_media_reference"
+              "_is_affirmative_subtitle_confirmation", "_is_path_reply_to_subtitle_prompt",
+              "_get_uploaded_media_reference", "_extract_media_filename"
           }
           helper_nodes = [node for node in main_tree.body
                           if isinstance(node, ast.FunctionDef) and node.name in helper_names]
@@ -101,7 +102,17 @@ jobs:
           extracted_path = helper_ns["_extract_windows_path"](spoken_request)
           assert extracted_path == r"E:\Anime\Boruto\Boruto TV Seiries\Boruto Clasic", extracted_path
           assert helper_ns["_extract_episode_count"](spoken_request) == 5
-          folder_followup = "e folder eka athule video files bara ganak thiye.ethanin mul episodes 5 he gen karanna"
+          spoken_mul_request = r"E:\Anime\Boruto\Boruto TV Seiries\Boruto Clasic mul epi 5he sinhala sub generate karanna"
+          assert helper_ns["_extract_windows_path"](spoken_mul_request) == r"E:\Anime\Boruto\Boruto TV Seiries\Boruto Clasic"
+          assert helper_ns["_extract_episode_count"](spoken_mul_request) == 5
+          assert helper_ns["_is_episode_batch_request"](spoken_mul_request)
+          offered_subtitle = "Perhaps generate subtitles for the initial episodes?"
+          assert helper_ns["_is_affirmative_subtitle_confirmation"]("yes", offered_subtitle)
+          assert not helper_ns["_is_affirmative_subtitle_confirmation"]("yes", "Hello, how are you?")
+          path_prompt = "Could you copy and paste the full location of the folder? I need it for the subtitles."
+          path_reply = r"E:\Anime\Boruto\Boruto TV Seiries\Boruto Clasic"
+          assert helper_ns["_is_path_reply_to_subtitle_prompt"](path_reply, path_prompt)
+          assert not helper_ns["_is_path_reply_to_subtitle_prompt"](path_reply, "How is your day?")          folder_followup = "e folder eka athule video files bara ganak thiye.ethanin mul episodes 5 he gen karanna"
           assert helper_ns["_is_episode_batch_request"](folder_followup)
           assert helper_ns["_is_subtitle_request"](folder_followup)
           assert helper_ns["_extract_episode_count"](folder_followup) == 5
