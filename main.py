@@ -1028,26 +1028,63 @@ class JarvisLive:
         return url, key, f"{url}/auto-login?key={key}", manual
 
     def _on_text_command(self, text: str):
-        # The Live API may send a tool call before its text echo/transcript arrives.
-        # Record typed commands synchronously so the subtitle router never sees the
-        # previous turn (or an empty string) when it validates the tool call.
-        self._last_user_text = str(text or "").strip()
-        self._last_user_speech = time.monotonic()
-        if not self._loop or not self.session:
+        # Record a typed command synchronously before any Live tool call can
+        # arrive, so subtitle routing never sees the previous turn.
+        command = str(text or "").strip()
+        if not command:
             return
+        self._last_user_text = command
+        self._last_user_speech = time.monotonic()
+
+        # Never fail silently here. The chat input is separate from the Live API
+        # receive loop, so a missing/disconnected session used to leave the user
+        # with only their own message and no activity explaining why.
+        self.ui.write_log("SYS: Command received — checking JARVIS Live connection…")
+        if not self._loop or not self.session:
+            self.ui.write_log(
+                "ERR: JARVIS is not connected to the Live session, so this command was not sent. "
+                "Check the startup/console error and API connection, then try again."
+            )
+            self.ui.set_state("SLEEPING")
+            return
+
         # Respect wake-word sleep: a typed command must not be answered while
-        # asleep either (the sleep gate is not just for the mic). Wake first with
-        # "Hey Jarvis" or the WAKE NOW button.
+        # asleep either (the sleep gate is not just for the mic).
         if self._wake_enabled and not self._awake:
             self.ui.write_log("SYS: I'm asleep — say 'Hey Jarvis' or tap WAKE NOW first.")
             return
-        asyncio.run_coroutine_threadsafe(
-            self.session.send_client_content(
-                turns={"role": "user", "parts": [{"text": text}]},
-                turn_complete=True
-            ),
-            self._loop
-        )
+
+        self.ui.set_state("THINKING")
+        try:
+            future = asyncio.run_coroutine_threadsafe(
+                self.session.send_client_content(
+                    turns={"role": "user", "parts": [{"text": command}]},
+                    turn_complete=True
+                ),
+                self._loop
+            )
+        except Exception as exc:
+            self.ui.write_log(
+                f"ERR: Could not send the command to JARVIS: {type(exc).__name__}: {str(exc)[:180]}"
+            )
+            if not self.ui.muted:
+                self.ui.set_state("LISTENING")
+            return
+
+        def _command_send_finished(done):
+            try:
+                done.result()
+            except Exception as exc:
+                self.ui.write_log(
+                    f"ERR: JARVIS could not send this command to the Live API: "
+                    f"{type(exc).__name__}: {str(exc)[:180]}"
+                )
+                if not self.ui.muted:
+                    self.ui.set_state("LISTENING")
+            else:
+                self.ui.write_log("SYS: Command sent to the Live API — waiting for JARVIS response…")
+
+        future.add_done_callback(_command_send_finished)
 
     def _tail_active(self) -> bool:
         """True while the speakers may still be finishing our last sentence."""
