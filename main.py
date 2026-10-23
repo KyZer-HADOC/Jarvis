@@ -405,6 +405,45 @@ def _is_subtitle_request(text: str) -> bool:
     return explicit or _is_episode_batch_request(raw)
 
 
+def _is_affirmative_subtitle_confirmation(text: str, assistant_text: str) -> bool:
+    """Recognize yes/sure only when the assistant just offered subtitle work."""
+    raw = str(text or "").strip().casefold()
+    if not re.fullmatch(
+        r"(?:yes|yeah|yep|yup|sure|ok|okay|ha|ow|hari|ela|go ahead|do it|start|please)[.!\s]*",
+        raw,
+    ):
+        return False
+    previous = str(assistant_text or "").strip().casefold()
+    mentions_subtitles = bool(re.search(
+        r"\b(?:subtitle|subtitles|captions?|srt|sub|episode|episodes|boruto)\b", previous
+    ))
+    offers_action = (
+        "?" in previous
+        or any(phrase in previous for phrase in (
+            "would you like", "do you want", "shall i", "should i", "want me to",
+            "can you provide", "could you provide", "copy and paste", "full path",
+            "full location", "generate the", "generating the",
+        ))
+    )
+    return mentions_subtitles and offers_action
+
+
+def _is_path_reply_to_subtitle_prompt(text: str, assistant_text: str) -> bool:
+    """Treat a path as a continuation when JARVIS just requested it for subtitle work."""
+    if not (_extract_windows_path(text) or _extract_media_filename(text)):
+        return False
+    previous = str(assistant_text or "").strip().casefold()
+    asks_for_location = any(phrase in previous for phrase in (
+        "full path", "full location", "path to the video", "path to the folder",
+        "copy and paste", "provide the path", "provide the full", "where the file",
+        "move those", "new folder", "standardizing the locations",
+    ))
+    subtitle_context = bool(re.search(
+        r"\b(?:subtitle|subtitles|srt|sub|episode|episodes|video|movie|boruto)\b", previous
+    ))
+    return asks_for_location and subtitle_context
+
+
 def _get_uploaded_media_reference(ui) -> str:
     """Return the exact currently uploaded local file from JarvisUI/FileDropZone."""
     # The upload pane stores the selection in JarvisUI._current_file, while the
