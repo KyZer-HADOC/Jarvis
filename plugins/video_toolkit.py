@@ -506,22 +506,81 @@ def _subtitles(p, info, a, player, open_it):
         else:
             sidecar = None
     if sidecar is not None and sidecar.is_file():
-        M.log(player, f"Found existing subtitles: {sidecar.name}. Translating those instead of re-listening to the video…")
+        destination = p.with_suffix(".srt")
         from plugins import subtitle_translate as ST
-        destination = _subtitle_destination(p, target_code, source_srt=sidecar)  # Save beside movie; reuse any partial translation.
+        source_srt = sidecar
+        same_name_source = False
+        try:
+            same_name_source = sidecar.resolve() == destination.resolve()
+        except OSError:
+            same_name_source = sidecar == destination
+
+        # A generic file such as "sinhalasub.srt" may already contain Sinhala.
+        # Use it for this exact video, do not translate Sinhala into Sinhala again,
+        # and create the player's expected <video-name>.srt sidecar.
+        try:
+            try:
+                source_text = sidecar.read_text(encoding="utf-8-sig")
+            except UnicodeDecodeError:
+                source_text = sidecar.read_text(encoding="cp1252", errors="replace")
+            already_target = _srt_contains_target_script(source_text, target_code)
+        except OSError:
+            already_target = False
+
+        if already_target:
+            try:
+                cue_count, adjusted, skipped = _normalize_srt_timing(
+                    sidecar, destination, float(info.get("duration") or 0.0), player
+                )
+            except Exception as e:
+                return f"I found {sidecar.name}, but couldn't prepare its timing for {p.name}: {e}"
+            M.log(player, f"Attached existing {target_name} subtitles to this video as {destination.name}.")
+            result = (
+                f"Done — used the existing {target_name} subtitles ({cue_count} cues) for {p.name}. "
+                f"Saved beside the video as: {destination}. Timing check adjusted {adjusted} cue(s) "
+                f"and skipped {skipped} invalid/out-of-video cue(s)."
+            )
+            return burn_file(destination) if burn else result
+
+        # The desired final name is always the movie's own stem. If a source SRT
+        # already occupies that exact name, preserve a copy as *.source.srt first,
+        # then replace the main sidecar with the translated captions as checkpoints
+        # arrive. This avoids leaving players to guess between .si.srt and .srt.
+        if same_name_source:
+            backup = M.unique(p.with_name(f"{p.stem}.source.srt"))
+            try:
+                shutil.copy2(sidecar, backup)
+            except OSError as e:
+                return (
+                    f"The source subtitle already uses {destination.name} and could not be backed up: {e}. "
+                    "I left the original file unchanged."
+                )
+            source_srt = backup
+            M.log(player, f"Preserved the original subtitles at {backup}; the finished sidecar will be {destination.name}.")
+        else:
+            M.log(player, f"Found existing subtitles: {sidecar.name}. Preparing the matching sidecar for {p.name}…")
+
         try:
             saved, line_count, failed = ST.translate_srt_file(
-                sidecar, target_name, source_language or "English", output_path=destination, player=player
+                source_srt, target_name, source_language or "English",
+                output_path=destination, player=player
+            )
+            cue_count, adjusted, skipped = _normalize_srt_timing(
+                saved, saved, float(info.get("duration") or 0.0), player
             )
         except T.TranslateError as e:
-            return f"Subtitle translation did not finish: {e}. A checkpoint may be saved at {destination}; the original SRT remains unchanged."
+            return f"Subtitle translation did not finish: {e}. Progress may already be saved at {destination}; source subtitles remain preserved."
         except Exception as e:
-            return f"I found {sidecar.name}, but couldn't translate it: {e}"
+            return f"I found {sidecar.name}, but couldn't prepare subtitles for {p.name}: {e}"
         note = f" {failed} line(s) are still in the source language." if failed else ""
-        M.log(player, f"Subtitle file saved: {saved}")
+        M.log(player, f"Subtitle file saved beside the video: {saved}")
         if burn:
             return burn_file(saved)
-        return f"Done — translated {line_count} subtitle lines to {target_name}. Saved: {saved}.{note} The source SRT was not changed."
+        return (
+            f"Done — prepared {line_count} {target_name} subtitle line(s) for {p.name}. "
+            f"Saved using the exact video filename: {saved}.{note} "
+            f"Timing check adjusted {adjusted} cue(s) and skipped {skipped} invalid/out-of-video cue(s)."
+        )
 
     # No source SRT exists: transcribe in ten-minute pieces, and translate each
     # checkpoint immediately. The final sidecar is created early and grows on disk
@@ -616,7 +675,10 @@ def _subtitles(p, info, a, player, open_it):
                 "Run the subtitle request again to resume the saved translation."
             )
         note = f" {failed} line(s) remain in the source language." if failed else ""
-        M.log(player, f"Finished subtitles: {saved}")
+        cue_count, adjusted, skipped = _normalize_srt_timing(
+            saved, saved, duration, player
+        )
+        M.log(player, f"Finished subtitles: {saved} ({cue_count} timed cues; {adjusted} timing adjustment(s)).")
         if burn:
             return burn_file(saved)
         return f"Done — generated and saved {line_count} subtitle lines in {target_name}: {saved}.{note} The original-language checkpoint is {source_srt}."
