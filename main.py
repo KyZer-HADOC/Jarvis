@@ -1370,60 +1370,95 @@ class JarvisLive:
         # For subtitle jobs, only ever use a path or filename present in the CURRENT
         # user turn. A compliment/status follow-up is not a new subtitle request.
         user_text = str(getattr(self, "_last_user_text", "") or "")
+        assistant_text = str(getattr(self, "_last_assistant_text", "") or "")
         requested_path = _extract_windows_path(user_text)
         requested_name = _extract_media_filename(user_text) if not requested_path else ""
         explicit_media_ref = requested_path or requested_name
-        wants_subtitles = _is_subtitle_request(user_text)
+
+        direct_subtitle_intent = _is_subtitle_request(user_text)
+        affirmative_confirmation = _is_affirmative_subtitle_confirmation(user_text, assistant_text)
+        path_reply = _is_path_reply_to_subtitle_prompt(user_text, assistant_text)
+
+        with self._active_task_lock:
+            recent_media_ref = self._last_explicit_media_ref
+            recent_media_age = time.monotonic() - self._last_explicit_media_time
+            remembered_request_age = time.monotonic() - self._last_subtitle_request_time
+            remembered_episode_count = self._last_subtitle_episode_count
+
+        # "Yes" is actionable only as a reply to an actual recent subtitle offer.
+        contextual_subtitle_intent = (
+            affirmative_confirmation or (path_reply and remembered_request_age < 1800)
+        )
+        wants_subtitles = direct_subtitle_intent or contextual_subtitle_intent
         wants_episode_batch = _is_episode_batch_request(user_text)
+        episode_count = _extract_episode_count(user_text)
 
         if explicit_media_ref:
             with self._active_task_lock:
                 self._last_explicit_media_ref = explicit_media_ref
                 self._last_explicit_media_time = time.monotonic()
+                recent_media_ref = explicit_media_ref
+                recent_media_age = 0.0
+
+        # Remember numbered subtitle intent before any tool-call guard can reject it.
+        if direct_subtitle_intent and (wants_episode_batch or episode_count > 0):
+            with self._active_task_lock:
+                self._last_subtitle_request_time = time.monotonic()
+                if episode_count > 0:
+                    self._last_subtitle_episode_count = episode_count
+                remembered_episode_count = self._last_subtitle_episode_count
+
+        if contextual_subtitle_intent and remembered_request_age < 1800:
+            if remembered_episode_count > 0:
+                wants_episode_batch = True
+            if episode_count <= 0:
+                episode_count = remembered_episode_count
 
         current_media_ref = explicit_media_ref
         if wants_subtitles and not current_media_ref:
-            with self._active_task_lock:
-                recent_media_ref = self._last_explicit_media_ref
-                recent_media_age = time.monotonic() - self._last_explicit_media_time
-
-            # "from there, do the first five episodes" refers to the folder the
-            # user explicitly supplied immediately before it; prefer that folder
-            # over a single previously-uploaded episode.
+            # A follow-up such as "from there, do the first five" refers to the
+            # exact folder previously supplied, not the last uploaded single video.
             if wants_episode_batch and recent_media_ref and recent_media_age < 1800:
                 current_media_ref = recent_media_ref
 
-            # An uploaded file is an explicit current UI selection. This handles
-            # "FILE: ... loaded" followed by "generate Sinhala sub" without asking
-            # for the path again.
             if not current_media_ref:
                 uploaded_ref = _get_uploaded_media_reference(self.ui)
                 if uploaded_ref:
                     current_media_ref = uploaded_ref
 
-            # Other concise subtitle follow-ups may refer to the most recent path,
-            # but only while it is fresh and only because this turn asks for subtitles.
             if not current_media_ref and recent_media_ref and recent_media_age < 1800:
                 current_media_ref = recent_media_ref
+
+        # If a file path was supplied but the command requests multiple episodes,
+        # process its containing folder instead of silently handling only one video.
+        if wants_subtitles and wants_episode_batch and episode_count > 0 and current_media_ref:
+            try:
+                ref_path = Path(current_media_ref).expanduser()
+                if ref_path.suffix.lower() in {".mp4", ".mkv", ".mov", ".avi", ".webm", ".m4v", ".flv", ".wmv"}:
+                    current_media_ref = str(ref_path.parent)
+            except (OSError, ValueError, TypeError):
+                pass
+
         if wants_subtitles and current_media_ref:
             chosen_target = ""
-            if re.search(r"(?i)\bSinhala\b|සිංහල", user_text):
+            if re.search(r"(?i)\\bSinhala\\b|සිංහල", user_text):
                 chosen_target = "Sinhala"
-            elif re.search(r"(?i)\bTamil\b|தமிழ்", user_text):
+            elif re.search(r"(?i)\\bTamil\\b|தமிழ்", user_text):
                 chosen_target = "Tamil"
-            elif re.search(r"(?i)\bEnglish\b", user_text):
+            elif re.search(r"(?i)\\bEnglish\\b", user_text):
                 chosen_target = "English"
-            elif re.search(r"(?i)\bHindi\b", user_text):
+            elif re.search(r"(?i)\\bHindi\\b", user_text):
                 chosen_target = "Hindi"
-            elif re.search(r"(?i)\bJapanese\b", user_text):
+            elif re.search(r"(?i)\\bJapanese\\b", user_text):
                 chosen_target = "Japanese"
-            burn_requested = bool(re.search(r"(?i)\b(?:burn|embed|hardcode)\b", user_text))
+            elif contextual_subtitle_intent:
+                chosen_target = "Sinhala"
+            burn_requested = bool(re.search(r"(?i)\\b(?:burn|embed|hardcode)\\b", user_text))
             if name == "video_toolkit":
                 args["action"] = "subtitles"
                 args["file"] = current_media_ref
                 args["target_language"] = chosen_target or args.get("target_language") or args.get("language") or "Sinhala"
                 args["burn"] = burn_requested
-                episode_count = _extract_episode_count(user_text)
                 if episode_count > 0 and wants_episode_batch:
                     args["episode_count"] = episode_count
             elif name == "subtitle_translate" and Path(current_media_ref).suffix.lower() != ".srt":
@@ -1434,13 +1469,11 @@ class JarvisLive:
                     "target_language": chosen_target or "Sinhala",
                     "burn": burn_requested,
                 }
-                episode_count = _extract_episode_count(user_text)
                 if episode_count > 0 and wants_episode_batch:
                     args["episode_count"] = episode_count
 
-        # Refuse stale subtitle tool calls before dispatching them. This is the
-        # guard that prevents a previous Naruto/other movie from being reused when
-        # the current turn contains no video path or filename.
+        # Reject only when there is neither recognizable intent nor a recent/current
+        # media reference. Plain acknowledgement/filler turns remain non-actionable.
         is_subtitle_call = (
             (name == "video_toolkit" and (
                 str(args.get("action", "")).lower().strip() == "subtitles" or wants_subtitles
@@ -1449,11 +1482,14 @@ class JarvisLive:
         )
         if is_subtitle_call and not (wants_subtitles and current_media_ref):
             result = (
-                "I did not start subtitle generation because this turn has no clear subtitle request "
-                "or safe current media reference. I will not reuse an unrelated old movie."
+                "I did not start subtitle generation because the current message does not identify "
+                "a subtitle request or a valid recent video/folder reference. I will not guess a different movie."
             )
-            self.ui.write_log("SYS: Ignored a subtitle tool call without a current subtitle request and safe media reference.")
+            self.ui.write_log(
+                "SYS: Subtitle tool call blocked: no recognized current subtitle intent and/or valid media reference."
+            )
             return types.FunctionResponse(id=fc.id, name=name, response={"result": result})
+
         print(f"[JARVIS] 🔧 {name}  {args}")
         self.ui.set_state("THINKING")
 
