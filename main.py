@@ -792,6 +792,11 @@ class JarvisLive:
         # reuse it solely when the current utterance actually requests subtitles.
         self._last_explicit_media_ref: str | None = None
         self._last_explicit_media_time = 0.0
+        # Keep the subtitle request alive through a short confirmation or a path
+        # reply when the Live model asks the user to repeat information.
+        self._last_assistant_text: str = ""
+        self._last_subtitle_request_time = 0.0
+        self._last_subtitle_episode_count = 0
 
         self._enhanced_live = True  # proactive audio; auto-disabled if the server rejects it
         self._tuned_live    = True  # turn-taking / media / thinking knobs; same fallback
@@ -2011,6 +2016,7 @@ class JarvisLive:
                                     full_out = ""
                             if full_out:
                                 self._last_out_logged = full_out
+                                self._last_assistant_text = full_out
                                 self.ui.write_log(f"{self._asst_name}: {full_out}")
                                 self._session_log.append(f"{self._asst_name}: {full_out}")
                                 if self._dashboard:
