@@ -56,10 +56,6 @@ from PyQt6.QtWidgets import (
     QStackedWidget, QTextEdit, QVBoxLayout, QWidget, QProgressBar,
 )
 
-from core.performance import (
-    graphics_profile, is_low_resource_hardware, update_resource_pressure,
-)
-
 try:
     from core.avatar import HoloAvatar
 except Exception:      # pragma: no cover — HUD must never die over cosmetics
@@ -287,9 +283,6 @@ class _SysMetrics:
     def _update(self):
         cpu = psutil.cpu_percent(interval=None)
         mem = psutil.virtual_memory().percent
-        # Reuse the existing metric sample to drive adaptive HUD quality; no
-        # extra busy-loop or second CPU sampler is started for this purpose.
-        update_resource_pressure(cpu, mem)
 
         nc  = psutil.net_io_counters()
         now = time.time()
@@ -473,9 +466,7 @@ class HudCanvas(QWidget):
 
         self._tmr = QTimer(self)
         self._tmr.timeout.connect(self._step)
-        # Older hardware starts with a cheaper cadence instead of first burning
-        # a core at 60 Hz and only throttling after the first pressure samples.
-        self._tmr.start(33 if is_low_resource_hardware() else 16)
+        self._tmr.start(16)
 
     def glance(self, dx: float, dy: float, hold: float = 1.1) -> None:
         """Ask the avatar to look somewhere for a moment (see HoloAvatar.glance)."""
@@ -570,31 +561,6 @@ class HudCanvas(QWidget):
     def _step(self):
         self._tick += 1
         now = time.time()
-        profile = graphics_profile()
-        desired_interval = 66 if profile >= 2 else (33 if profile >= 1 else 16)
-
-        # Software-rendered facial geometry is expensive when hidden/minimised.
-        # Sleep most of the animation while nobody can see the canvas.
-        if not self._on_screen():
-            if self._tmr.interval() != 250:
-                self._tmr.setInterval(250)
-            self._step_t = now
-            self._last_t = now
-            self._live_amp *= 0.50
-            self._amp_disp *= 0.65
-            sched = self._visemes
-            if sched is not None and now >= sched[1] + len(sched[0]) * sched[2]:
-                self._visemes = None
-                self._vis_i = None
-            return
-
-        if self._tmr.interval() != desired_interval:
-            self._tmr.setInterval(desired_interval)
-        if self._avatar is not None:
-            # Filling and depth-sorting hundreds of triangles every frame is the
-            # most expensive HUD path. The animated wireframe remains visible on
-            # old CPUs, and solid shading returns if the machine has spare room.
-            self._avatar.shaded = profile == 0
 
         # ── Live audio reactivity ────────────────────────────────────────────
         # A viseme schedule, if one is playing, gives both the level and the
@@ -690,12 +656,14 @@ class HudCanvas(QWidget):
         self._paint_tick = (self._paint_tick + 1) % 6
         active = (self.speaking or amp > 0.02
                   or self.state in ("THINKING", "PROCESSING"))
-        if profile >= 2:
-            paint_due = active or self._paint_tick % 3 == 0
-        else:
-            paint_due = self._paint_tick % (2 if active else 3) == 0
-        if _blinked or paint_due:
-            self.update()
+        if _blinked or (self._paint_tick % 2 == 0 if active
+                        else self._paint_tick % 3 == 0):
+            # Nothing is on screen when the window is hidden or minimised, so
+            # rendering the avatar into it is pure waste — and this app is meant
+            # to sit running all day. The animation state above keeps stepping,
+            # so it picks up mid-motion instead of snapping when you come back.
+            if self._on_screen():
+                self.update()
 
     def _on_screen(self) -> bool:
         """True only when this canvas can actually be seen by the user."""
@@ -1065,57 +1033,70 @@ class LogWidget(QTextEdit):
             }}
         """)
         self._queue: list[str] = []
+        self._typing  = False
+        self._text    = ""
+        self._pos     = 0
+        self._tag     = "sys"
         self._ai_name_lc = "jarvis"   # updated when assistant name changes
         self._tmr = QTimer(self)
-        self._tmr.setSingleShot(True)
-        self._tmr.timeout.connect(self._flush_queue)
+        self._tmr.timeout.connect(self._step)
         self._sig.connect(self._enqueue)
 
     def append_log(self, text: str):
-        self._sig.emit(str(text))
+        self._sig.emit(text)
 
     def _enqueue(self, text: str):
-        self._queue.append(str(text))
-        # Tool progress is batched into one document/cursor/scroll update instead
-        # of inserting every single character on its own 6 ms timer tick.
-        if len(self._queue) > 500:
-            self._queue = self._queue[-500:]
-        if not self._tmr.isActive():
-            self._tmr.start(40)
+        self._queue.append(text)
+        if not self._typing:
+            self._next()
 
-    def _flush_queue(self):
+    def _next(self):
         if not self._queue:
+            self._typing = False
             return
-        batch, self._queue = self._queue, []
-        cur = self.textCursor()
-        cur.movePosition(cur.MoveOperation.End)
-        palette = {
-            "you": qcol(C.WHITE),
-            "ai": qcol(C.PRI),
-            "err": qcol(C.RED),
-            "file": qcol(C.GREEN),
-            "sys": qcol(C.TEXT_MED),
-        }
-        for line in batch:
-            tl = line.lower()
-            ai_pfx = f"{self._ai_name_lc}:"
-            if tl.startswith("you:"):
-                tag = "you"
-            elif tl.startswith(ai_pfx) or tl.startswith("jarvis:"):
-                tag = "ai"
-            elif tl.startswith("file:"):
-                tag = "file"
-            elif "err" in tl:
-                tag = "err"
-            else:
-                tag = "sys"
+        self._typing = True
+        self._text   = self._queue.pop(0)
+        self._pos    = 0
+        tl = self._text.lower()
+        _ai_pfx = f"{self._ai_name_lc}:"
+        if   tl.startswith("you:"):                              self._tag = "you"
+        elif tl.startswith(_ai_pfx) or tl.startswith("jarvis:"): self._tag = "ai"
+        elif tl.startswith("file:"):                             self._tag = "file"
+        elif "err" in tl:                                        self._tag = "err"
+        else:                                                    self._tag = "sys"
+        self._tmr.start(6)
+
+    def _step(self):
+        if self._pos < len(self._text):
+            ch  = self._text[self._pos]
+            cur = self.textCursor()
             fmt = cur.charFormat()
-            fmt.setForeground(QBrush(palette[tag]))
-            cur.insertText(line + "\n", fmt)
-        self.setTextCursor(cur)
-        self.ensureCursorVisible()
-        if self._queue:
-            self._tmr.start(40)
+            col = {
+                "you":  qcol(C.WHITE),
+                "ai":   qcol(C.PRI),
+                "err":  qcol(C.RED),
+                "file": qcol(C.GREEN),
+                # SYS lines are the bulk of the log. Amber fought the cyan HUD
+                # and, being a fixed status colour rather than a hue-linked one,
+                # stayed amber even after the accent picker retinted everything
+                # else. TEXT_MED follows the theme and drops the contrast to a
+                # level you can read past.
+                "sys":  qcol(C.TEXT_MED),
+            }.get(self._tag, qcol(C.TEXT))
+            fmt.setForeground(QBrush(col))
+            cur.movePosition(cur.MoveOperation.End)
+            cur.insertText(ch, fmt)
+            self.setTextCursor(cur)
+            self.ensureCursorVisible()
+            self._pos += 1
+        else:
+            self._tmr.stop()
+            cur = self.textCursor()
+            cur.movePosition(cur.MoveOperation.End)
+            cur.insertText("\n")
+            self.setTextCursor(cur)
+            self.ensureCursorVisible()
+            QTimer.singleShot(20, self._next)
 
 _FILE_ICONS = {
     "image":   ("🖼", "#00d4ff"), "video":   ("🎬", "#ff6b00"),
@@ -1164,8 +1145,7 @@ class FileDropZone(QWidget):
         self._dash_offset = 0.0
         self._anim_tmr = QTimer(self)
         self._anim_tmr.timeout.connect(self._animate)
-        # No timer wake-up while the drop-zone border is idle.
-
+        self._anim_tmr.start(40)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
@@ -1185,20 +1165,13 @@ class FileDropZone(QWidget):
     def dragEnterEvent(self, e: QDragEnterEvent):
         if e.mimeData().hasUrls():
             e.acceptProposedAction()
-            self._drag_over = True
-            self._anim_tmr.start(40)
-            self._canvas.update()
+            self._drag_over = True; self._canvas.update()
 
     def dragLeaveEvent(self, e):
-        self._drag_over = False
-        if not self._hovering:
-            self._anim_tmr.stop()
-        self._canvas.update()
+        self._drag_over = False; self._canvas.update()
 
     def dropEvent(self, e: QDropEvent):
         self._drag_over = False
-        if not self._hovering:
-            self._anim_tmr.stop()
         urls = e.mimeData().urls()
         if urls:
             path = urls[0].toLocalFile()
@@ -1211,15 +1184,10 @@ class FileDropZone(QWidget):
             self._browse()
 
     def enterEvent(self, e):
-        self._hovering = True
-        self._anim_tmr.start(40)
-        self._canvas.update()
+        self._hovering = True; self._canvas.update()
 
     def leaveEvent(self, e):
-        self._hovering = False
-        if not self._drag_over:
-            self._anim_tmr.stop()
-        self._canvas.update()
+        self._hovering = False; self._canvas.update()
 
     def current_file(self) -> str | None:
         return self._current_file
