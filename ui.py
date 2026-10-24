@@ -82,8 +82,9 @@ def _read_full_config() -> dict:
 
 # Single source of truth for the release name — the window title, the header
 # badge and the readme must never disagree again.
-APP_VERSION  = "JARVIS"
-APP_PROTOCOL = APP_VERSION.split()[-1]
+APP_VERSION  = "Mark KH Edition"
+# Keep the remote dashboard protocol stable for existing paired clients.
+APP_PROTOCOL = "JARVIS"
 
 _DEFAULT_W, _DEFAULT_H = 980, 700
 _MIN_W,     _MIN_H     = 820, 580
