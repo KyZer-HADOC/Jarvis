@@ -1,0 +1,266 @@
+MARK KH EDITION — PLUGIN GUIDE
+Creator/maintainer: KyZer_HADOC
+Repository: https://github.com/KyZer-HADOC/Jarvis
+
+This file describes the separately loadable tools in the plugins folder. JARVIS discovers plugins when it starts. Place plugin files in the correct plugins folder, restart Mark KH Edition, then check the Activity Log if a plugin does not load.
+
+PLUGIN FOLDER
+Windows installed copy:
+%LOCALAPPDATA%\Programs\Jarvis\plugins\
+
+Open it with Windows + R, paste the path above, and press Enter.
+
+Source-code copy:
+<your cloned repository folder>\plugins\
+
+Do not copy plugin files into the repository root or the actions folder.
+
+======================================================================
+PLUGIN LIST
+======================================================================
+
+1. accurate_solver.py — Accurate Solver
+Purpose:
+- Solves maths and science calculations using a separate SymPy worker.
+- Supports algebra, equations, calculus, matrices, statistics, number theory, physics/chemistry calculations and factual/scientific questions.
+- Can check a proposed calculation and present sources for factual queries.
+Requirements:
+- Uses the configured AI provider to plan complex tasks; the exact calculation worker requires SymPy.
+- The project setup and plugin loader are expected to supply the dependencies. If SymPy is missing, install it inside the same Python environment as Mark KH Edition.
+Safety:
+- The math worker has a restricted expression grammar and a timeout.
+
+2. auto_messenger.py — Auto Messenger
+Purpose:
+- Schedules WhatsApp, Telegram and other supported desktop messages for a selected time or recurring daily/weekly schedule.
+- Lists or cancels scheduled messages.
+Requirements:
+- The relevant messaging app and its supported integration must be configured.
+- A message that becomes due is not sent automatically: the user must press the explicit CONFIRM button on the HUD.
+Safety:
+- Missed messages are not unexpectedly sent after the app was closed. Sending is confirmation-gated.
+
+3. clipboard_manager.py — Clipboard Manager & Translator
+Purpose:
+- Remembers recent clipboard text, searches clipboard history, restores an earlier item, translates selected clips, reports status and clears history.
+Requirements:
+- Clipboard access is provided by the OS. Translation requires a configured AI provider.
+- Persistent history is optional and can be enabled in plugin settings.
+Privacy:
+- History is kept locally by default. Persisting history to disk is less private, and secret-looking values are filtered.
+
+4. currency_convert.py — Currency Converter
+Purpose:
+- Converts currencies using an online exchange-rate feed (examples: LKR, USD, EUR, INR, GBP, JPY and AED).
+- Can report a current approximate exchange rate.
+Requirements:
+- Internet connection; no API key required.
+Note:
+- Rates are refreshed by the provider and cached temporarily. They are informational, not a bank quote.
+
+5. file_explorer.py — File Explorer
+Purpose:
+- Lists a folder, shows a folder tree, finds files by name/type/size/age, lists recently changed files and opens a folder or file.
+- Can bulk-rename files using replace, prefix, suffix, numbering, letter case, clean names, date prefix or lowercase extensions.
+Requirements:
+- Local OS file permissions.
+Safety:
+- Bulk rename always previews first and needs a second confirmed call to apply. Existing files are not overwritten. Bulk rename is restricted to the user's home folder; read-only browse/search can use other paths the account can access. It integrates with Undo.
+
+6. groq_brain.py — Groq Brain / Text Assistant
+Purpose:
+- Summarizes, translates, rewrites or polishes text, explains code, summarizes a web article URL and answers ordinary non-live questions.
+- Can work on text supplied in the command or on clipboard text.
+Requirements:
+- Uses the configured AI provider. The plugin's shared helper can use Gemini, Groq and/or OpenRouter according to configuration.
+- A Groq or OpenRouter key is needed for fallback text processing when the Gemini route is unavailable. See ReadMe.txt for provider key links.
+Note:
+- For live news, weather, exchange rates or other current information, use the relevant current-data plugin instead.
+
+7. groq_transcribe.py — Groq Transcribe
+Purpose:
+- Transcribes speech in an audio or video file to text, and can optionally summarize it.
+- Saves a transcript text file beside the source media.
+Requirements:
+- Groq API key: https://console.groq.com/keys
+- Supported audio/video files are limited by the provider's upload size (the plugin documentation specifies up to 25 MB).
+Note:
+- This is for files, not live microphone transcription.
+
+8. image_create.py — Image Create
+Purpose:
+- Creates a new image from a text prompt (artwork, character concepts, posters, logos, thumbnails, backgrounds and wallpapers).
+- Supports multiple sizes such as square, landscape, portrait, vertical 9:16 and YouTube thumbnail 16:9.
+- Saves images to the user's Pictures/JARVIS output folder.
+Requirements:
+- Uses the configured Pollinations image service. A personal key is optional in supported configurations; public service access may be slow, limited or unavailable.
+- Prompt enhancement uses Groq/OpenRouter if configured.
+Optional key page:
+https://enter.pollinations.ai/keys
+Note:
+- This generates a new image. It is not an image editor for modifying an existing image.
+
+9. memory_tools.py — Memory Tools
+Purpose:
+- Shows saved long-term memory, lists items by category, previews items to forget and exports selected memory to a readable file.
+Requirements:
+- Works with the local JARVIS memory store; no extra API key required for local memory actions.
+Safety:
+- Forgetting uses two steps: first inspect the preview, then repeat with confirmation. Exports are saved locally.
+
+10. music_create.py — Music Create
+Purpose:
+- Composes an original instrumental background track offline. Styles include lo-fi, chill, happy, energetic, sad, epic and dark.
+- Saves a WAV file; MP3 conversion is available when ffmpeg is installed.
+Requirements:
+- No API key required. A CPU is used to synthesize the track, so long tracks can take time.
+Limit:
+- This is synthesized instrumental background music, not a vocal singer or a full-band generator.
+
+11. news_brief.py — News Brief
+Purpose:
+- Reads a handful of current headlines from public RSS feeds for world news, technology, business, science, sports or a custom subject.
+Requirements:
+- Internet connection; no API key required.
+Note:
+- For deep research or detailed sourced answers, use the main web/research tool instead.
+
+12. notes_todo.py — Notes & To-Do
+Purpose:
+- Adds, lists, searches, completes and deletes local notes and tasks.
+- Data is saved to memory/notes_todo.json inside the app data/source folder.
+Requirements:
+- No API key required.
+Note:
+- Use the reminder feature for tasks that must notify at a specific time. Use the assistant's long-term memory tools for facts you want JARVIS to remember about you.
+
+13. openrouter_ask.py — OpenRouter Ask
+Purpose:
+- Asks a selected AI model through OpenRouter, requests a second opinion, and lists available or free models.
+Requirements:
+- OpenRouter API key: https://openrouter.ai/keys
+- The default model router is openrouter/free. Free model availability and daily limits change.
+Cost warning:
+- Selecting a paid model may use paid credits. Check the model's current price before using it.
+
+14. pc_doctor.py — PC Doctor
+Purpose:
+- Checks common PC problems, high CPU/RAM usage, processes, disk space, temperature and network health where supported.
+- Can clean temporary files, diagnose networking, inspect top processes and offer Windows repair tools.
+Requirements:
+- Some repair tasks invoke Windows tools or require an Administrator/UAC confirmation. Hardware telemetry varies by device.
+Safety:
+- Scans are read-only. Cleanup, killing a process and system repair require the app's confirmation flow. Critical OS processes are protected.
+
+15. screen_reader.py — Screen Reader
+Purpose:
+- Lists open windows, looks at a named window or screen, reads visible text and saves screenshots.
+Requirements:
+- Uses the existing Gemini key and Gemini vision service; network access is needed for image questions.
+Privacy:
+- Screen/window images may be sent to the configured AI provider when you explicitly request the look/read action. Password-manager windows are refused.
+
+16. spotify_control.py — Spotify Control
+Purpose:
+- Opens Spotify, pauses/resumes playback, moves to the next/previous track, reports what's playing where supported, and opens a search for an artist or song.
+Requirements:
+- No API key required for supported desktop media-key controls.
+Limit:
+- Search opens results; it does not automatically start an arbitrary selected track. Windows media keys may control the app that most recently played audio.
+
+17. study_helper.py — Study Helper
+Purpose:
+- Explains topics at a chosen level, creates quizzes, makes/reviews flashcards and builds study plans.
+- Quizzes can be presented on the HUD board.
+Requirements:
+- Groq key or OpenRouter key for the AI calls:
+  Groq: https://console.groq.com/keys
+  OpenRouter: https://openrouter.ai/keys
+
+18. subtitle_translate.py — Subtitle Translate
+Purpose:
+- Translates an existing .srt subtitle file into another language while preserving cue timestamps/order.
+- Writes a separate output and saves checkpoints so the original subtitle is not overwritten.
+Requirements:
+- A working configured AI translation provider. Set the target subtitle language in Plugin Settings if needed.
+How to use:
+- Give JARVIS the full path to an existing .srt file. For an MP4/MKV or other video, use video_toolkit's subtitles action instead.
+
+19. video_toolkit.py — Video Toolkit
+Purpose:
+- Edits videos/audio with ffmpeg: trim, merge, change speed, compress, create GIFs, extract audio, create vertical videos for TikTok/Reels/Shorts and add background music.
+- For video subtitle tasks, it can reuse matching existing SRT files or transcribe/translate media, save subtitle sidecars, and optionally burn captions into an output video.
+Requirements:
+- ffmpeg must be installed and available on PATH for media editing:
+  https://ffmpeg.org/download.html
+- Groq key is required when speech recognition/transcription is needed:
+  https://console.groq.com/keys
+- Translation depends on the configured AI translation provider.
+Safety:
+- Output videos are saved to the JARVIS video output folder; originals should be preserved. Subtitle sidecars are saved next to the source video with the same base filename.
+
+20. youtube_tools.py — YouTube Tools
+Purpose:
+- Downloads permitted videos/audio, reports video information and controls playback with actions such as play/pause, forward/back, captions, mute, fullscreen and speed.
+Requirements:
+- Internet connection. Download support depends on the installed yt-dlp-related dependencies and site availability; use only media you have the right to download.
+Note:
+- For playing a video inside the HUD, use the built-in video player/youtube video feature as appropriate.
+
+======================================================================
+SHARED HELPER FILES — DO NOT TREAT THESE AS STANDALONE PLUGINS
+======================================================================
+
+- __init__.py — makes the plugins directory a Python package.
+- _ai.py — shared AI routing helper for Gemini, Groq and OpenRouter.
+- _groq.py — shared Groq chat/transcription provider helper and provider settings.
+- _openrouter.py — shared OpenRouter provider/model helper.
+- _media.py — shared file/media path resolution and media utility functions.
+- _translate.py — shared subtitle/text translation and SRT parsing helpers.
+- _windows.py — Windows open-window discovery/capture helpers for screen_reader.
+- _mathworker.py — restricted subprocess worker used by accurate_solver; do not invoke manually as a plugin.
+- _template.py — copy this file to create a new plugin; it is a template, not an active plugin.
+
+If a plugin imports one of these helpers, keep its helper beside it in the plugins folder. The safest option is to copy the plugin and its required helpers from the same release version.
+
+======================================================================
+HOW TO INSTALL A NEW PLUGIN
+======================================================================
+
+1. Close Mark KH Edition completely.
+2. Open this folder:
+   %LOCALAPPDATA%\Programs\Jarvis\plugins\
+3. Copy the new plugin .py file into that folder.
+4. Copy any required shared helper modules listed in that plugin's instructions.
+5. Start Mark KH Edition again. Plugin discovery runs at startup.
+6. If the new plugin needs an API key, open PLUGIN SETTINGS, enter the key in the correct provider section, press SAVE, and TEST CONNECTION where available.
+7. Read the Activity Log if it is marked invalid or fails to load. Check for missing dependencies and missing helper files.
+
+For a source-code installation, the folder is:
+<your cloned repository folder>\plugins\
+
+Only install plugin code from a source you trust. Plugins run Python code with the permissions of your user account and may access files or use the network. Never share API keys or commit them to GitHub.
+
+======================================================================
+API KEY QUICK LINKS
+======================================================================
+
+Gemini (required for the main assistant):
+https://aistudio.google.com/apikey
+
+Gemini API docs:
+https://ai.google.dev/gemini-api/docs/api-key
+
+Groq (speech transcription, subtitles and selected text tools):
+https://console.groq.com/keys
+
+OpenRouter (alternate AI provider and model selection):
+https://openrouter.ai/keys
+
+Pollinations (optional image-generation key):
+https://enter.pollinations.ai/keys
+
+FFmpeg (video/audio editing dependency):
+https://ffmpeg.org/download.html
+
+For full installation, privacy and troubleshooting instructions, read ReadMe.txt.
