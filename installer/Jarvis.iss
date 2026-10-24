@@ -21,15 +21,15 @@
 
 [Setup]
 AppId={{B7E4C1A2-5D3F-4E8A-9C61-2F0A7D5E8B14}
-AppName=JARVIS
+AppName=Mark KH Edition
 AppVersion={#AppVersion}
 AppPublisher=KyZer_HADOC
 AppPublisherURL=https://github.com/KyZer-HADOC/Jarvis
 AppSupportURL=https://github.com/KyZer-HADOC/Jarvis/issues
-UninstallDisplayName=JARVIS
+UninstallDisplayName=Mark KH Edition
 Uninstallable=yes
 DefaultDirName={localappdata}\Programs\Jarvis
-DefaultGroupName=JARVIS
+DefaultGroupName=Mark KH Edition
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
@@ -53,14 +53,14 @@ Name: "firefox"; Description: "Also download Firefox for browser automation (ext
 
 [Files]
 ; Private data and build leftovers are excluded so that building on a developer PC can never leak keys.
-Source: "..\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion; Excludes: ".git,.github,__pycache__,*.pyc,*.log,*.tmp,venv,python,plugins\*,installer\Output,publish_to_github.bat,.env,.env.*,token*.json,client_secret*.json,*credentials*.json,config\api_keys.json,config\certs,config\certs\*,config\whatsapp_web,config\whatsapp_web\*,memory\*.json,memory\*.db"
+Source: "..\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion; Excludes: ".git,.github,__pycache__,*.pyc,*.log,*.tmp,venv,python,plugins\*,installer\Output,publish_to_github.bat,ReadMe.txt,plugins.txt,.env,.env.*,token*.json,client_secret*.json,*credentials*.json,config\api_keys.json,config\certs,config\certs\*,config\whatsapp_web,config\whatsapp_web\*,memory\*.json,memory\*.db"
 Source: "..\plugins\*"; DestDir: "{app}\plugins"; Flags: recursesubdirs createallsubdirs ignoreversion uninsneveruninstall; Excludes: "__pycache__,*.pyc,*.log,*.tmp"
 
 [Icons]
-Name: "{group}\JARVIS"; Filename: "{app}\venv\Scripts\pythonw.exe"; Parameters: """{app}\main.py"""; WorkingDir: "{app}"; IconFilename: "{app}\jarvis.ico"
-Name: "{group}\JARVIS (console, for troubleshooting)"; Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\main.py"""; WorkingDir: "{app}"; IconFilename: "{app}\jarvis.ico"
-Name: "{group}\Repair JARVIS (reinstall requirements; browser download is optional)"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\installer\bootstrap.ps1"" -AppDir ""{app}"""; WorkingDir: "{app}"; IconFilename: "{app}\jarvis.ico"
-Name: "{autodesktop}\JARVIS"; Filename: "{app}\venv\Scripts\pythonw.exe"; Parameters: """{app}\main.py"""; WorkingDir: "{app}"; IconFilename: "{app}\jarvis.ico"; Tasks: desktopicon
+Name: "{group}\Mark KH Edition"; Filename: "{app}\venv\Scripts\pythonw.exe"; Parameters: """{app}\main.py"""; WorkingDir: "{app}"; IconFilename: "{app}\jarvis.ico"
+Name: "{group}\Mark KH Edition (console, for troubleshooting)"; Filename: "{app}\venv\Scripts\python.exe"; Parameters: """{app}\main.py"""; WorkingDir: "{app}"; IconFilename: "{app}\jarvis.ico"
+Name: "{group}\Repair Mark KH Edition (reinstall requirements; browser download is optional)"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\installer\bootstrap.ps1"" -AppDir ""{app}"""; WorkingDir: "{app}"; IconFilename: "{app}\jarvis.ico"
+Name: "{autodesktop}\Mark KH Edition"; Filename: "{app}\venv\Scripts\pythonw.exe"; Parameters: """{app}\main.py"""; WorkingDir: "{app}"; IconFilename: "{app}\jarvis.ico"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\venv\Scripts\pythonw.exe"; Parameters: """{app}\main.py"""; WorkingDir: "{app}"; Description: "Launch JARVIS now"; Flags: nowait postinstall skipifsilent; Check: BootstrapSucceeded
